@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Foxi</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: oklch(17% 0.008 50);
+  --rail: oklch(15% 0.008 50);
+  --s1: oklch(20.5% 0.009 50);
+  --s2: oklch(24% 0.010 50);
+  --s3: oklch(29% 0.012 50);
+  --line: oklch(100% 0 0 / 0.07);
+  --line-2: oklch(100% 0 0 / 0.13);
+  --tx: oklch(95% 0.006 70);
+  --tx2: oklch(76% 0.010 60);
+  --tx3: oklch(59% 0.012 55);
+  --acc: oklch(71% 0.165 48);
+  --acc-2: oklch(79% 0.135 58);
+  --acc-soft: oklch(71% 0.165 48 / 0.15);
+  --acc-line: oklch(71% 0.165 48 / 0.5);
+  --on-acc: oklch(20% 0.03 45);
+  --ok: oklch(76% 0.14 150);
+  --bad: oklch(69% 0.17 27);
+  --r-sm: 8px; --r: 12px; --r-lg: 16px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow: 0 1px 0 oklch(100% 0 0 / .04) inset, 0 10px 30px -14px oklch(0% 0 0 / .7);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-d: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--tx); font: 400 14px/1.5 var(--font);
+  letter-spacing: .005em; -webkit-font-smoothing: antialiased; overflow: hidden; user-select: none; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 6px; }
+h1, h2, h3 { font-family: var(--font-d); margin: 0; font-weight: 650; letter-spacing: -.01em; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--tx3); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: oklch(100% 0 0 / .1); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: oklch(100% 0 0 / .18); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- shell */
+.app { display: grid; grid-template-columns: 216px 1fr; height: 100%; }
+.rail { background: var(--rail); border-right: 1px solid var(--line); display: flex; flex-direction: column;
+  padding: 20px 12px; gap: 4px; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px; }
+.brand svg { width: 30px; height: 30px; }
+.brand b { font: 700 20px/1 var(--font-d); letter-spacing: -.02em; }
+.nav { display: flex; align-items: center; gap: 12px; height: 40px; padding: 0 12px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--tx2); text-align: left; position: relative;
+  transition: background .15s, color .15s; }
+.nav svg { width: 18px; height: 18px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round; }
+.nav:hover { background: var(--s1); color: var(--tx); }
+.nav.active { background: var(--s2); color: var(--tx); }
+.nav.active::before { content: ""; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: 3px;
+  background: var(--acc); }
+.rail .spacer { flex: 1; }
+.rail .ver { padding: 0 12px; font-size: 12px; color: var(--tx3); }
+
+main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.top { display: flex; align-items: center; gap: 20px; padding: 22px 32px 18px; }
+.top .titles { flex: 1; min-width: 0; }
+.top h1 { font-size: 24px; }
+.top p { margin: 2px 0 0; color: var(--tx3); }
+.status { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 14px; border-radius: 999px;
+  background: var(--s1); border: 1px solid var(--line); color: var(--tx2); white-space: nowrap; }
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tx3); transition: background .2s; }
+.status.live .dot { background: var(--ok); box-shadow: 0 0 0 4px oklch(76% 0.14 150 / .15); }
+.status .sep { width: 1px; height: 14px; background: var(--line-2); }
+
+.mode { position: relative; display: grid; grid-template-columns: 1fr 1fr; padding: 4px; border-radius: 999px;
+  background: var(--s1); border: 1px solid var(--line); }
+.mode button { position: relative; z-index: 1; height: 30px; padding: 0 16px; border: 0; background: none;
+  border-radius: 999px; color: var(--tx2); font-weight: 600; transition: color .2s; white-space: nowrap; }
+.mode button.on { color: var(--on-acc); }
+.mode .thumb { position: absolute; top: 4px; bottom: 4px; left: 4px; width: calc(50% - 4px); border-radius: 999px;
+  background: var(--acc); transition: transform .28s var(--ease); }
+.mode.game .thumb { transform: translateX(100%); }
+
+.banner { margin: 0 32px 12px; padding: 10px 14px; border-radius: var(--r-sm); background: oklch(69% 0.17 27 / .14);
+  border: 1px solid oklch(69% 0.17 27 / .4); color: oklch(88% 0.06 30); }
+.banner[hidden] { display: none; }
+
+.views { flex: 1; min-height: 0; overflow: auto; padding: 4px 32px 32px; }
+.view { display: none; animation: in .3s var(--ease); }
+.view.active { display: block; }
+@keyframes in { from { opacity: 0; transform: translateY(6px); } }
+
+.card { background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px;
+  box-shadow: var(--shadow); }
+.card h2 { font-size: 15px; margin-bottom: 4px; }
+.card > p { margin: 0 0 16px; color: var(--tx3); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 16px;
+  border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--s2); font-weight: 600;
+  transition: background .15s, border-color .15s, transform .1s; }
+.btn:hover { background: var(--s3); }
+.btn:active { transform: scale(.97); }
+.btn.primary { background: var(--acc); border-color: transparent; color: var(--on-acc); }
+.btn.primary:hover { background: var(--acc-2); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--tx2); }
+.btn.ghost:hover { background: var(--s2); color: var(--tx); }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: .5; pointer-events: none; }
+.btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+
+/* ---------- controller view */
+.pad-wrap { position: relative; }
+#pad { width: 100%; max-height: 470px; display: block; }
+#pad .body { fill: var(--s2); stroke: var(--line-2); stroke-width: 1.5; }
+#pad .well { fill: oklch(19% 0.009 50); }
+#pad .k { fill: var(--s3); stroke: oklch(100% 0 0 / .06); transition: fill .08s; cursor: pointer; }
+#pad .k:hover { fill: oklch(34% 0.014 50); }
+#pad .k.held, #pad .cap.held .k { fill: var(--acc); }
+#pad .glyph { font: 700 13px var(--font); pointer-events: none; text-anchor: middle; dominant-baseline: central; }
+#pad .glyph.A { fill: oklch(78% 0.12 145); } #pad .glyph.B { fill: oklch(72% 0.14 25); }
+#pad .glyph.X { fill: oklch(72% 0.11 245); } #pad .glyph.Y { fill: oklch(84% 0.12 90); }
+#pad .held + .glyph, #pad .k.held ~ .glyph { fill: var(--on-acc); }
+#pad .cap { transition: transform .03s linear; }
+#pad .cap .ring { fill: none; stroke: oklch(100% 0 0 / .08); stroke-width: 2; pointer-events: none; }
+#pad .trig-fill { fill: var(--acc); pointer-events: none; }
+#pad .leader { fill: none; stroke: oklch(100% 0 0 / .13); stroke-width: 1; transition: stroke .15s; }
+#pad .callout { cursor: pointer; }
+#pad .callout .c-name { font: 600 10.5px var(--font); letter-spacing: .08em; fill: var(--tx3); }
+#pad .callout .c-act { font: 600 14px var(--font); fill: var(--tx); }
+#pad .callout.none .c-act { fill: var(--tx3); font-weight: 400; }
+#pad .callout .hit { fill: transparent; }
+#pad .callout:hover .c-act, #pad .callout.hot .c-act { fill: var(--acc-2); }
+#pad .callout:hover .leader, #pad .callout.hot .leader { stroke: var(--acc-line); }
+#pad .callout.held .c-act { fill: var(--acc); }
+#pad .callout.held .leader { stroke: var(--acc); }
+#pad .hot-k { fill: oklch(36% 0.02 50) !important; }
+
+.below { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-top: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.combo-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin: 0 -10px; border-radius: var(--r-sm);
+  cursor: pointer; transition: background .15s; }
+.combo-row:hover { background: var(--s2); }
+.cap-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 24px; padding: 0 7px;
+  border-radius: 6px; background: var(--s3); border: 1px solid var(--line-2); border-bottom-width: 2px;
+  font: 700 11.5px var(--font); letter-spacing: .03em; color: var(--tx); }
+.cap-chip.lit { background: var(--acc); color: var(--on-acc); border-color: transparent; }
+.plus { color: var(--tx3); font-size: 12px; }
+.arrow { color: var(--tx3); }
+.log { display: flex; flex-direction: column; gap: 2px; min-height: 120px; }
+.log div { font: 12px var(--mono); color: var(--tx2); padding: 3px 0; border-bottom: 1px solid var(--line); }
+.log div:first-child { color: var(--tx); }
+.empty { color: var(--tx3); padding: 8px 0; }
+
+/* ---------- shortcuts view */
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.toolbar .grow { flex: 1; color: var(--tx3); }
+.group-label { font: 600 11px var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--tx3);
+  margin: 20px 0 8px; }
+.list { background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.row { display: grid; grid-template-columns: 150px 24px 1fr auto; align-items: center; gap: 12px; padding: 12px 18px;
+  border-bottom: 1px solid var(--line); cursor: pointer; transition: background .15s; }
+.row:last-child { border-bottom: 0; }
+.row:hover { background: var(--s2); }
+.row .act b { font-weight: 600; }
+.row .act .mono { color: var(--tx3); margin-left: 8px; }
+.badge { font: 600 11px var(--font); padding: 3px 9px; border-radius: 999px; background: var(--s3); color: var(--tx2); }
+.badge.acc { background: var(--acc-soft); color: var(--acc-2); }
+.row.held { background: var(--acc-soft); }
+
+/* ---------- cursor view */
+.field { display: grid; grid-template-columns: 150px 1fr 76px; align-items: center; gap: 14px; min-height: 40px; }
+.field label { color: var(--tx2); }
+.field output { text-align: right; font: 600 13px var(--font); font-variant-numeric: tabular-nums; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; background: transparent; --p: 50%; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--acc) var(--p), var(--s3) var(--p)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%;
+  background: var(--tx); border: 3px solid var(--acc); box-shadow: 0 2px 6px oklch(0% 0 0 / .4); transition: transform .12s; }
+input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+.seg { display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; background: var(--s2); border: 1px solid var(--line); }
+.seg button { height: 28px; padding: 0 12px; border: 0; border-radius: 7px; background: none; color: var(--tx2); font-weight: 600;
+  transition: background .15s, color .15s; }
+.seg button:hover { color: var(--tx); }
+.seg button.on { background: var(--s3); color: var(--tx); box-shadow: 0 1px 2px oklch(0% 0 0 / .4); }
+.seg.disabled { opacity: .45; pointer-events: none; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; }
+.toggle span { color: var(--tx2); }
+.toggle span small { display: block; color: var(--tx3); font-size: 12px; }
+.switch { position: relative; width: 40px; height: 22px; flex: none; border-radius: 999px; border: 0; background: var(--s3);
+  transition: background .2s; }
+.switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--tx2); transition: transform .2s var(--ease), background .2s; }
+.switch.on { background: var(--acc); }
+.switch.on::after { transform: translateX(18px); background: var(--on-acc); }
+.note { color: var(--tx3); font-size: 12.5px; margin: 6px 0 0; }
+.curve-box { position: relative; }
+#curve { width: 100%; height: 250px; display: block; }
+.legend { display: flex; gap: 18px; margin-top: 10px; color: var(--tx3); font-size: 12.5px; }
+.legend i { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--acc); vertical-align: middle; margin-right: 6px; }
+.legend i.dash { border-top-style: dashed; border-color: var(--acc-2); }
+.legend i.zone { height: 10px; border: 0; background: oklch(100% 0 0 / .06); }
+.presets { display: flex; gap: 10px; }
+.presets input { width: 90px; height: 36px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--s2);
+  padding: 0 10px; font-variant-numeric: tabular-nums; }
+.stack { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------- diagnostics view */
+.tester { display: grid; grid-template-columns: 220px 220px 1fr; gap: 24px; align-items: start; }
+.scope canvas { width: 220px; height: 220px; display: block; }
+.scope-cap { display: flex; justify-content: space-between; margin-top: 8px; color: var(--tx2); font-weight: 600; }
+.scope-cap .mono { color: var(--tx3); font-weight: 400; }
+.tbar { display: grid; grid-template-columns: 30px 1fr 44px; align-items: center; gap: 10px; margin-bottom: 10px; font-weight: 600; }
+.tbar .track { height: 10px; border-radius: 6px; background: var(--s3); overflow: hidden; }
+.tbar .track i { display: block; height: 100%; width: 0; background: var(--acc); border-radius: 6px; }
+.tbar b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--tx2); }
+.btn-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin: 16px 0 12px; }
+.bchip { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 48px; border-radius: 8px;
+  background: var(--s2); border: 1px solid var(--line); font: 700 12px var(--font); transition: background .06s; }
+.bchip small { font: 400 11px var(--font); color: var(--tx3); font-variant-numeric: tabular-nums; }
+.bchip.lit { background: var(--acc); color: var(--on-acc); border-color: transparent; }
+.bchip.lit small { color: var(--on-acc); }
+.dgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 16px; }
+.dcard { display: flex; flex-direction: column; }
+.dcard .head { display: flex; align-items: center; gap: 12px; }
+.dcard .head h2 { flex: 1; margin: 0; }
+.dcard > p { margin: 6px 0 14px; }
+.dprog { height: 4px; border-radius: 4px; background: var(--s3); overflow: hidden; margin-bottom: 14px; }
+.dprog i { display: block; height: 100%; width: 0; background: var(--acc); transition: width .1s linear; }
+.res { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 12px; align-items: center; }
+.res span { color: var(--tx2); }
+.res b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.v { font: 600 11px var(--font); padding: 2px 8px; border-radius: 999px; }
+.v.good { background: oklch(76% 0.14 150 / .15); color: var(--ok); }
+.v.ok { background: oklch(80% 0.13 85 / .15); color: oklch(84% 0.12 85); }
+.v.poor { background: oklch(69% 0.17 27 / .15); color: var(--bad); }
+.v.incomplete { background: var(--s3); color: var(--tx3); }
+.rings { display: flex; gap: 16px; margin-bottom: 14px; }
+.rings canvas { width: 140px; height: 140px; display: block; margin-bottom: 4px; }
+.rings figure { margin: 0; text-align: center; color: var(--tx3); font-size: 12px; }
+
+/* ---------- system view */
+.status-line { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--font); padding: 4px 10px; border-radius: 999px; }
+.pill.ok { background: oklch(76% 0.14 150 / .14); color: var(--ok); }
+.pill.warn { background: var(--acc-soft); color: var(--acc-2); }
+.packs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.pack { border: 1px solid var(--line-2); border-radius: var(--r); background: var(--s2); padding: 14px; text-align: left;
+  transition: border-color .15s, background .15s; }
+.pack:hover { background: var(--s3); }
+.pack.on { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+.pack b { display: block; font-weight: 600; }
+.pack span { color: var(--tx3); font-size: 12.5px; }
+.pack .try { margin-top: 12px; height: 64px; border-radius: 8px; background: oklch(19% 0.009 50); display: grid;
+  grid-template-columns: 1fr 1fr 1fr; overflow: hidden; }
+.pack .try div { display: grid; place-items: center; font-size: 11px; color: var(--tx3); border-right: 1px solid var(--line); }
+.pack .try div:last-child { border-right: 0; }
+.kv { display: grid; grid-template-columns: 120px 1fr; gap: 8px 16px; }
+.kv .mono { word-break: break-all; color: var(--tx2); }
+
+/* ---------- editor drawer */
+.scrim { position: fixed; inset: 0; z-index: 50; background: oklch(0% 0 0 / .45); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.scrim.open { opacity: 1; pointer-events: auto; }
+.drawer { position: fixed; z-index: 60; top: 0; right: 0; bottom: 0; width: 420px; background: var(--s1); border-left: 1px solid var(--line-2);
+  box-shadow: -20px 0 50px -20px oklch(0% 0 0 / .7); transform: translateX(104%); transition: transform .3s var(--ease);
+  display: flex; flex-direction: column; }
+.drawer.open { transform: none; }
+.drawer header { padding: 22px 24px 8px; }
+.drawer header h2 { font-size: 18px; }
+.drawer .body { flex: 1; overflow: auto; padding: 8px 24px 24px; display: flex; flex-direction: column; gap: 22px; }
+.drawer footer { display: flex; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--line); }
+.drawer footer .grow { flex: 1; }
+.sec-label { font: 600 11px var(--font); letter-spacing: .1em; text-transform: uppercase; color: var(--tx3); margin-bottom: 10px; }
+.trigger-box { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px 8px 14px; border-radius: var(--r);
+  background: var(--s2); border: 1px solid var(--line-2); }
+.trigger-box .chips { flex: 1; }
+.trigger-box.rec { border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+.trigger-box.rec .btn { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+.types { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.type { border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--s2); padding: 10px 12px; text-align: left;
+  transition: border-color .15s, background .15s; }
+.type:hover { background: var(--s3); }
+.type b { display: block; font-weight: 600; font-size: 13.5px; }
+.type span { color: var(--tx3); font-size: 12px; line-height: 1.35; display: block; margin-top: 2px; }
+.type.on { border-color: var(--acc); background: var(--acc-soft); }
+.mods { display: flex; gap: 8px; margin-bottom: 10px; }
+.features { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.feat { border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--s2); padding: 8px 10px; text-align: left;
+  transition: border-color .15s, background .15s; }
+.feat:hover { background: var(--s3); }
+.feat b { display: block; font-weight: 600; font-size: 13px; }
+.feat span { color: var(--tx3); font-size: 11px; }
+.feat.on { border-color: var(--acc); background: var(--acc-soft); }
+.mods button { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--s2); font-weight: 600;
+  color: var(--tx2); transition: all .15s; }
+.mods button.on { background: var(--acc); border-color: transparent; color: var(--on-acc); }
+.keybox { display: flex; align-items: center; justify-content: center; height: 52px; border-radius: var(--r); border: 1px dashed var(--line-2);
+  background: var(--s2); color: var(--tx3); cursor: text; transition: border-color .15s, box-shadow .15s; }
+.keybox:focus { outline: none; border: 1px solid var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); color: var(--tx2); }
+.keybox .cap-chip { height: 30px; min-width: 40px; font-size: 13px; }
+.row2 { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(--line-2); background: var(--s2); padding: 0 10px; }
+.text { width: 100%; }
+.preview { display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: var(--r); background: oklch(19% 0.009 50);
+  border: 1px solid var(--line); }
+.err { color: var(--bad); font-size: 13px; min-height: 18px; }
+
+/* ---------- toasts */
+.toasts { position: fixed; z-index: 70; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px;
+  align-items: center; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 14px; padding: 10px 12px 10px 16px; border-radius: var(--r);
+  background: var(--s3); border: 1px solid var(--line-2); box-shadow: var(--shadow); animation: toast .3s var(--ease); }
+.toast.bad { border-color: oklch(69% 0.17 27 / .5); }
+.toast button { border: 0; background: none; color: var(--acc-2); font-weight: 600; padding: 4px 6px; }
+@keyframes toast { from { opacity: 0; transform: translateY(10px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M5 5 L12 11 H20 L27 5 L26 17 L16 28 L6 17 Z" fill="oklch(71% 0.165 48)"/>
+        <path d="M10 18 L16 24 L22 18 L16 20 Z" fill="oklch(93% 0.02 70)"/>
+        <circle cx="12" cy="15" r="1.4" fill="oklch(20% 0.03 45)"/><circle cx="20" cy="15" r="1.4" fill="oklch(20% 0.03 45)"/>
+      </svg>
+      <b>Foxi</b>
+    </div>
+    <button class="nav active" data-view="controller">
+      <svg viewBox="0 0 24 24"><path d="M6 9h4M8 7v4M15 10h.01M18 8h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6l-.7 6.9A2.7 2.7 0 0 0 4.7 18.5c1 0 1.9-.5 2.4-1.4L8 15.5h8l.9 1.6c.5.9 1.4 1.4 2.4 1.4a2.7 2.7 0 0 0 2.7-3l-.7-6.9A4 4 0 0 0 17.3 5z"/></svg>
+      Controller</button>
+    <button class="nav" data-view="shortcuts">
+      <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>
+      Shortcuts</button>
+    <button class="nav" data-view="combos">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/><path d="M11 7h3a3 3 0 0 1 3 3v3"/></svg>
+      Combos</button>
+    <button class="nav" data-view="cursor">
+      <svg viewBox="0 0 24 24"><path d="M4 3l7 17 2.5-7.5L21 10z"/></svg>
+      Cursor &amp; scroll</button>
+    <button class="nav" data-view="diag">
+      <svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+      Diagnostics</button>
+    <button class="nav" data-view="system">
+      <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>
+      System</button>
+    <div class="spacer"></div>
+    <div class="ver" id="ver"></div>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div class="titles"><h1 id="title">Controller</h1><p id="subtitle"></p></div>
+      <div class="status" id="status"><span class="dot"></span><span id="conn">Starting…</span></div>
+      <div class="mode" id="mode" role="radiogroup" aria-label="Mode">
+        <span class="thumb"></span>
+        <button data-mode="on" role="radio">Mouse &amp; keys</button>
+        <button data-mode="game" role="radio">Game</button>
+      </div>
+    </div>
+    <div class="banner" id="banner" hidden></div>
+
+    <div class="views">
+      <!-- controller -->
+      <section class="view active" id="view-controller">
+        <div class="pad-wrap"><svg id="pad" viewBox="0 0 1000 470" aria-label="Controller preview"></svg></div>
+        <div class="card" style="margin-top:8px"><h2>Recent</h2><p>What your controller just did.</p><div class="log" id="log"></div></div>
+      </section>
+
+      <!-- shortcuts -->
+      <section class="view" id="view-shortcuts">
+        <div class="toolbar">
+          <span class="grow">Click a row to change it. Rows light up as you press them.</span>
+          <button class="btn ghost" id="reset">Reset to defaults</button>
+          <button class="btn primary" id="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add shortcut</button>
+        </div>
+        <div id="lists"></div>
+      </section>
+
+      <!-- combos -->
+      <section class="view" id="view-combos">
+        <div class="toolbar">
+          <span class="grow">Two or more buttons pressed together. The longest matching combo wins, so a combo can reuse buttons that also have their own shortcut.</span>
+          <button class="btn primary" id="add-combo"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add combo</button>
+        </div>
+        <div id="combo-list"></div>
+      </section>
+
+      <!-- diagnostics -->
+      <section class="view" id="view-diag">
+        <div class="card">
+          <h2>Live tester</h2><p>Everything the controller reports, right now. The ring is Foxi's deadzone.</p>
+          <div class="tester">
+            <div class="scope"><canvas id="sc-l"></canvas><div class="scope-cap">Left stick <span class="mono" id="sv-l"></span></div></div>
+            <div class="scope"><canvas id="sc-r"></canvas><div class="scope-cap">Right stick <span class="mono" id="sv-r"></span></div></div>
+            <div>
+              <div class="tbar"><span>LT</span><div class="track"><i id="tb-lt"></i></div><b id="tv-lt">0</b></div>
+              <div class="tbar"><span>RT</span><div class="track"><i id="tb-rt"></i></div><b id="tv-rt">0</b></div>
+              <div class="btn-grid" id="btn-grid"></div>
+              <button class="btn ghost" id="cnt-reset">Reset press counts</button>
+            </div>
+          </div>
+        </div>
+        <div class="dgrid" id="tests"></div>
+      </section>
+
+      <!-- cursor -->
+      <section class="view" id="view-cursor">
+        <div class="grid2">
+          <div class="stack">
+            <div class="card"><h2>Cursor</h2><p>How the stick moves the pointer.</p><div id="f-cursor"></div></div>
+            <div class="card"><h2>Scroll</h2><p id="scroll-note">Push the scroll stick to scroll pages.</p><div id="f-scroll"></div></div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <h2>Response curve</h2><p>Stick tilt → cursor speed. The dot is your stick right now.</p>
+              <div class="curve-box"><canvas id="curve"></canvas></div>
+              <div class="legend"><span><i></i>speed</span><span><i class="dash"></i>held at the edge (boost)</span><span><i class="zone"></i>deadzone</span></div>
+            </div>
+            <div class="card">
+              <h2>Speed presets</h2><p>The <b>DPI</b> action (BACK by default) cycles these. 1 buzz = first preset.</p>
+              <div class="presets" id="presets"></div>
+            </div>
+            <div class="card"><h2>Timing</h2><p>Buttons, repeats and the window switcher.</p><div id="f-timing"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- system -->
+      <section class="view" id="view-system">
+        <div class="stack">
+          <div class="card">
+            <h2>Hide controller from Windows</h2>
+            <p>Windows 11 also reacts to controllers on its own: it moves focus between terminal tabs and closes voice typing.
+              HidHide makes the controller visible only to Foxi while you're in <b>Mouse &amp; keys</b> mode. <b>Game</b> mode shows it to games again.</p>
+            <div class="status-line" id="hh-status"></div>
+            <div class="row2" style="margin-top:0"><button class="btn" id="hh-btn"></button><span class="note" id="hh-note"></span></div>
+          </div>
+          <div class="card">
+            <h2>Cursor look</h2><p>Used while Foxi is in Mouse &amp; keys mode. Hover a tile to try it.</p>
+            <div class="packs" id="packs"></div>
+          </div>
+          <div class="card">
+            <h2>About</h2><p>Foxi is portable: settings live next to the app.</p>
+            <div class="kv" id="about"></div>
+            <div class="row2"><button class="btn" id="open-folder">Open Foxi folder</button></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <header><h2 id="ed-title">Edit shortcut</h2><p class="dim" id="ed-sub" style="margin:4px 0 0"></p></header>
+  <div class="body">
+    <div>
+      <div class="sec-label">When I press</div>
+      <div class="trigger-box" id="ed-trigger"><div class="chips" id="ed-chips"></div><button class="btn" id="ed-rec">Record</button></div>
+      <p class="note">Press Record, then hold the buttons on your controller and let go.</p>
+    </div>
+    <div>
+      <div class="sec-label">Do this</div>
+      <div class="types" id="ed-types"></div>
+    </div>
+    <div id="ed-value"></div>
+    <div>
+      <div class="sec-label">Preview</div>
+      <div class="preview" id="ed-preview"></div>
+    </div>
+    <div class="err" id="ed-err"></div>
+  </div>
+  <footer>
+    <button class="btn ghost danger" id="ed-del">Delete</button>
+    <span class="grow"></span>
+    <button class="btn ghost" id="ed-cancel">Cancel</button>
+    <button class="btn primary" id="ed-save">Save shortcut</button>
+  </footer>
+</aside>
+<div class="toasts" id="toasts"></div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const h = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k));
+  return e;
+};
+const SVG = 'http://www.w3.org/2000/svg';
+const s = (tag, attrs = {}, ...kids) => {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  for (const k of kids) e.append(k.nodeType ? k : document.createTextNode(k));
+  return e;
+};
+let api, cfg, info, S = null, previews = {};
+
+// ---------------------------------------------------------------- labels
+const BUTTON_ORDER = ['LT','RT','LB','RB','A','B','X','Y','UP','DOWN','LEFT','RIGHT','LS','RS','BACK','START','HOME'];
+const NICE_BTN = { UP: '↑', DOWN: '↓', LEFT: '←', RIGHT: '→', BACK: 'View', START: 'Menu', HOME: 'Home', LS: 'L3', RS: 'R3' };
+const NAMED = {
+  'keys:win+h': 'Voice typing', 'repeat:ctrl+backspace': 'Delete word', 'keys:ctrl+backspace': 'Delete word',
+  'keys:enter': 'Enter', 'switcher': 'Window switcher', 'toggle': 'Mouse ⇄ Game', 'dpi': 'Cursor speed',
+  'mouse:left': 'Left click', 'mouse:right': 'Right click', 'mouse:middle': 'Middle click',
+  'repeat:up': 'Arrow up', 'repeat:down': 'Arrow down', 'repeat:left': 'Arrow left', 'repeat:right': 'Arrow right',
+  'keys:win+shift+s': 'Screenshot', 'keys:win+d': 'Show desktop', 'keys:alt+tab': 'Alt + Tab',
+  'keys:play_pause': 'Play / pause', 'keys:next': 'Next track', 'keys:prev': 'Previous track',
+  'keys:volume_up': 'Volume up', 'keys:volume_down': 'Volume down', 'keys:mute': 'Mute', 'keys:esc': 'Escape',
+  'keys:ctrl+c': 'Copy', 'keys:ctrl+v': 'Paste', 'keys:ctrl+z': 'Undo', 'keys:ctrl+w': 'Close tab', 'keys:ctrl+t': 'New tab',
+};
+const WIN_FEATURES = [
+  ['keys:win+h', 'Voice typing'], ['keys:win+shift+s', 'Screenshot'], ['keys:win+v', 'Clipboard history'],
+  ['keys:win+.', 'Emoji & symbols'], ['keys:win+tab', 'Task view'], ['keys:win+d', 'Show desktop'],
+  ['keys:win+e', 'File Explorer'], ['keys:win+i', 'Settings'], ['keys:win+s', 'Search'],
+  ['keys:win+a', 'Quick settings'], ['keys:win+n', 'Notifications'], ['keys:ctrl+win+o', 'On-screen keyboard'],
+  ['keys:win+up', 'Maximize window'], ['keys:win+down', 'Minimize window'], ['keys:win+left', 'Snap left'],
+  ['keys:win+right', 'Snap right'], ['keys:alt+f4', 'Close window'], ['keys:win+r', 'Run dialog'],
+  ['keys:ctrl+win+left', 'Previous desktop'], ['keys:ctrl+win+right', 'Next desktop'], ['keys:win+l', 'Lock PC'],
+];
+for (const [a, n] of WIN_FEATURES) NAMED[a] = n;
+const KEY_NICE = { ctrl: 'Ctrl', shift: 'Shift', alt: 'Alt', win: 'Win', esc: 'Esc', backspace: 'Backspace', enter: 'Enter',
+  space: 'Space', tab: 'Tab', up: '↑', down: '↓', left: '←', right: '→', pageup: 'PgUp', pagedown: 'PgDn',
+  printscreen: 'PrtSc', menu: 'Menu', delete: 'Del', insert: 'Ins', home: 'Home', end: 'End',
+  volume_up: 'Vol +', volume_down: 'Vol −', mute: 'Mute', play_pause: 'Play/Pause', next: 'Next', prev: 'Prev', stop: 'Stop' };
+const keyNice = k => KEY_NICE[k] || (k.length === 1 ? k.toUpperCase() : k.toUpperCase());
+function label(action) {
+  if (!action) return null;
+  if (NAMED[action]) return NAMED[action];
+  const [kind, ...rest] = action.split(':'); const arg = rest.join(':');
+  if (kind === 'keys' || kind === 'repeat') return arg.split('+').map(keyNice).join(' + ') + (kind === 'repeat' ? ' ⟳' : '');
+  if (kind === 'run') return 'Run ' + arg.split(/[\\/]/).pop();
+  return action;
+}
+const KIND_BADGE = { keys: 'Keys', repeat: 'Keys · repeat', mouse: 'Mouse', run: 'Program', switcher: 'Switcher', toggle: 'Mode', dpi: 'Speed' };
+const kindOf = a => a.split(':')[0];
+const chipsFor = (combo, lit = []) => {
+  const parts = combo ? combo.split('+') : [];
+  const out = [];
+  parts.forEach((p, i) => {
+    if (i) out.push(h('span', { class: 'plus' }, '+'));
+    out.push(h('span', { class: 'cap-chip' + (lit.includes(p) ? ' lit' : '') }, NICE_BTN[p] || p));
+  });
+  return out;
+};
+
+// ---------------------------------------------------------------- controller svg
+// pad-local coordinates, drawn at translate(180,30)
+const OX = 180, OY = 30;
+const PAD = {
+  LT: { t: 'trig', x: 140, y: 8, w: 84, h: 28 }, RT: { t: 'trig', x: 416, y: 8, w: 84, h: 28 },
+  LB: { t: 'rect', x: 120, y: 46, w: 120, h: 22, rx: 11 }, RB: { t: 'rect', x: 400, y: 46, w: 120, h: 22, rx: 11 },
+  LS: { t: 'stick', cx: 190, cy: 160, r: 44 }, RS: { t: 'stick', cx: 385, cy: 250, r: 40 },
+  UP: { t: 'rect', x: 242, y: 211, w: 26, h: 26, rx: 5 }, DOWN: { t: 'rect', x: 242, y: 263, w: 26, h: 26, rx: 5 },
+  LEFT: { t: 'rect', x: 216, y: 237, w: 26, h: 26, rx: 5 }, RIGHT: { t: 'rect', x: 268, y: 237, w: 26, h: 26, rx: 5 },
+  BACK: { t: 'rect', x: 271, y: 143, w: 28, h: 14, rx: 7 }, START: { t: 'rect', x: 341, y: 143, w: 28, h: 14, rx: 7 },
+  HOME: { t: 'circle', cx: 320, cy: 108, r: 16 },
+  Y: { t: 'face', cx: 450, cy: 124, r: 17 }, X: { t: 'face', cx: 414, cy: 160, r: 17 },
+  B: { t: 'face', cx: 486, cy: 160, r: 17 }, A: { t: 'face', cx: 450, cy: 196, r: 17 },
+};
+const anchor = n => { const p = PAD[n]; return p.cx != null ? [p.cx + OX, p.cy + OY] : [p.x + p.w / 2 + OX, p.y + p.h / 2 + OY]; };
+const LEFT_SLOTS = { LT: 40, LB: 88, LS: 140, BACK: 192, UP: 244, LEFT: 296, RIGHT: 348, DOWN: 400 };
+const RIGHT_SLOTS = { RT: 40, RB: 88, HOME: 136, Y: 184, START: 232, X: 280, B: 328, A: 376, RS: 424 };
+const padEls = {};
+let caps = {}, trigFill = {};
+
+function buildPad() {
+  const svg = $('#pad'); svg.innerHTML = '';
+  const leaders = s('g'), body = s('g', { transform: `translate(${OX},${OY})` }), labels = s('g');
+  svg.append(leaders, body, labels);
+  body.append(s('path', { class: 'body', d: 'M182 72C130 72 100 96 84 142L46 290C34 348 64 398 116 392C150 388 172 364 194 334C208 322 222 318 240 318L400 318C418 318 432 322 446 334C468 364 490 388 524 392C576 398 606 348 594 290L556 142C540 96 510 72 458 72C424 72 404 84 386 92L254 92C236 84 216 72 182 72Z' }));
+  body.append(s('rect', { class: 'well', x: 242, y: 237, width: 26, height: 26, rx: 3 }));
+  for (const [n, p] of Object.entries(PAD)) {
+    let g = s('g', { 'data-btn': n });
+    if (p.t === 'trig') {
+      const clip = s('clipPath', { id: 'clip-' + n }, s('rect', { x: p.x, y: p.y, width: p.w, height: p.h, rx: 10 }));
+      const k = s('rect', { class: 'k', x: p.x, y: p.y, width: p.w, height: p.h, rx: 10 });
+      const f = s('rect', { class: 'trig-fill', x: p.x, y: p.y, width: 0, height: p.h, 'clip-path': `url(#clip-${n})` });
+      g.append(clip, k, f, s('text', { class: 'glyph', x: p.x + p.w / 2, y: p.y + p.h / 2, fill: 'oklch(76% 0.01 60)' }, n));
+      trigFill[n] = [f, p.w]; padEls[n] = k;
+    } else if (p.t === 'rect') {
+      const k = s('rect', { class: 'k', x: p.x, y: p.y, width: p.w, height: p.h, rx: p.rx });
+      g.append(k);
+      if (n === 'LB' || n === 'RB') g.append(s('text', { class: 'glyph', x: p.x + p.w / 2, y: p.y + p.h / 2, fill: 'oklch(76% 0.01 60)' }, n));
+      padEls[n] = k;
+    } else if (p.t === 'circle') {
+      const k = s('circle', { class: 'k', cx: p.cx, cy: p.cy, r: p.r });
+      g.append(k, s('path', { d: `M${p.cx - 6} ${p.cy + 3}l6-7 6 7`, fill: 'none', stroke: 'oklch(76% 0.01 60)', 'stroke-width': 2, 'pointer-events': 'none' }));
+      padEls[n] = k;
+    } else if (p.t === 'face') {
+      const k = s('circle', { class: 'k', cx: p.cx, cy: p.cy, r: p.r });
+      g.append(k, s('text', { class: 'glyph ' + n, x: p.cx, y: p.cy }, n));
+      padEls[n] = k;
+    } else if (p.t === 'stick') {
+      g.append(s('circle', { class: 'well', cx: p.cx, cy: p.cy, r: p.r }));
+      const cap = s('g', { class: 'cap' });
+      const k = s('circle', { class: 'k', cx: p.cx, cy: p.cy, r: p.r * 0.68 });
+      cap.append(k, s('circle', { class: 'ring', cx: p.cx, cy: p.cy, r: p.r * 0.48 }));
+      g.append(cap); caps[n] = [cap, p.r * 0.34]; padEls[n] = k;
+    }
+    g.addEventListener('click', () => openEditor(n, true));
+    g.addEventListener('mouseenter', () => hot(n, true)); g.addEventListener('mouseleave', () => hot(n, false));
+    body.append(g);
+  }
+  // callouts
+  for (const [side, slots] of [['L', LEFT_SLOTS], ['R', RIGHT_SLOTS]]) {
+    for (const [n, y] of Object.entries(slots)) {
+      const [ax, ay] = anchor(n);
+      const tx = side === 'L' ? 150 : 850, elbow = side === 'L' ? 196 : 804;
+      const g = s('g', { class: 'callout', 'data-callout': n });
+      g.append(s('path', { class: 'leader', d: `M${side === 'L' ? tx + 8 : tx - 8} ${y}H${elbow}L${ax} ${ay}` }));
+      const anchorTxt = side === 'L' ? 'end' : 'start';
+      g.append(s('text', { class: 'c-name', x: tx, y: y - 9, 'text-anchor': anchorTxt }, ''));
+      g.append(s('text', { class: 'c-act', x: tx, y: y + 9, 'text-anchor': anchorTxt }, ''));
+      g.append(s('rect', { class: 'hit', x: side === 'L' ? 0 : tx - 4, y: y - 22, width: side === 'L' ? tx + 4 : 1000 - tx + 4, height: 42 }));
+      g.addEventListener('click', () => openEditor(n, true));
+      g.addEventListener('mouseenter', () => hot(n, true)); g.addEventListener('mouseleave', () => hot(n, false));
+      leaders.append(g);
+      // leaders layer holds the whole callout so lines sit under the pad; move text above for readability
+    }
+  }
+  renderCallouts();
+}
+function hot(n, on) {
+  const c = $(`[data-callout="${n}"]`); if (c) c.classList.toggle('hot', on);
+  padEls[n] && padEls[n].classList.toggle('hot-k', on);
+}
+function stickRole(n) {
+  const side = n === 'LS' ? 'left' : 'right';
+  if (cfg.mouse_stick === 'both') return 'CURSOR · BOTH = SCROLL';
+  if (cfg.mouse_stick === side) return 'CURSOR';
+  if (cfg.scroll_stick === side) return 'SCROLL';
+  return 'STICK';
+}
+function renderCallouts() {
+  for (const g of $$('[data-callout]')) {
+    const n = g.dataset.callout, a = cfg.map[n];
+    const [nameEl, actEl] = $$('text', g);
+    const nm = n === 'LS' ? 'L STICK · ' + stickRole(n) : n === 'RS' ? 'R STICK · ' + stickRole(n) : (NICE_BTN[n] && n.length > 2 ? NICE_BTN[n].toUpperCase() : n);
+    nameEl.textContent = nm;
+    actEl.textContent = a ? ((n === 'LS' || n === 'RS') ? 'Press: ' + label(a) : label(a)) : ((n === 'LS' || n === 'RS') ? 'Press: nothing' : 'Not set');
+    g.classList.toggle('none', !a);
+  }
+}
+
+// ---------------------------------------------------------------- live state
+let lastLog = null;
+function applyState(st) {
+  S = st;
+  const status = $('#status'); status.classList.toggle('live', st.connected);
+  $('#conn').textContent = st.connected ? 'Controller connected' : 'No controller · press Home';
+  let sp = $('#speed-pill');
+  if (st.connected && st.speed) {
+    if (!sp) { status.append(h('span', { class: 'sep' }), sp = h('span', { id: 'speed-pill' })); }
+    sp.textContent = st.speed + ' px/s';
+  } else if (sp) { sp.previousSibling.remove(); sp.remove(); }
+  const mode = $('#mode'); mode.classList.toggle('game', st.mode === 'game');
+  $$('#mode button').forEach(b => { b.classList.toggle('on', b.dataset.mode === st.mode); b.setAttribute('aria-checked', b.dataset.mode === st.mode); });
+  const ban = $('#banner'); ban.hidden = !st.error; ban.textContent = st.error || '';
+
+  const held = new Set(st.held);
+  for (const [n, el] of Object.entries(padEls)) {
+    const on = held.has(n);
+    if (caps[n]) caps[n][0].classList.toggle('held', on); else el.classList.toggle('held', on);
+    const c = $(`[data-callout="${n}"]`); c && c.classList.toggle('held', on);
+  }
+  for (const [n, [cap, r]] of Object.entries(caps)) {
+    const x = n === 'LS' ? st.lx : st.rx, y = n === 'LS' ? st.ly : st.ry;
+    cap.setAttribute('transform', `translate(${(x * r).toFixed(1)},${(-y * r).toFixed(1)})`);
+  }
+  for (const [n, [f, w]] of Object.entries(trigFill)) f.setAttribute('width', (w * (n === 'LT' ? st.lt : st.rt)).toFixed(1));
+  const lg = st.log.slice().reverse().join('\n');
+  if (lg !== lastLog) {
+    lastLog = lg;
+    $('#log').replaceChildren(...(st.log.length ? st.log.slice().reverse().map(l => h('div', {}, l)) : [h('div', { class: 'empty' }, 'Nothing yet. Press a mapped button.')]));
+  }
+  $$('.row[data-combo]').forEach(r => r.classList.toggle('held', r.dataset.combo.split('+').every(b => held.has(b))));
+  if ($('#view-diag').classList.contains('active')) drawTester(st);
+  if ($('#view-cursor').classList.contains('active')) drawCurve();
+}
+async function loop() {
+  try { applyState(await api.state()); } catch (e) { console.error(e); }
+  setTimeout(loop, 33);
+}
+
+// ---------------------------------------------------------------- navigation
+const TITLES = {
+  controller: ['Controller', 'Live view of your controller. Click any button to change what it does.'],
+  shortcuts: ['Shortcuts', 'What each single button does.'],
+  combos: ['Combos', 'Buttons pressed together for extra shortcuts.'],
+  diag: ['Diagnostics', 'Test polling rate, drift, jitter, deadzone, range, triggers and buttons.'],
+  cursor: ['Cursor & scroll', 'Speed, curve and feel of the sticks.'],
+  system: ['System', 'Controller hiding, cursor look and app info.'],
+};
+function show(view) {
+  $$('.nav').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  $$('.view').forEach(v => v.classList.toggle('active', v.id === 'view-' + view));
+  $('#title').textContent = TITLES[view][0]; $('#subtitle').textContent = TITLES[view][1];
+  if (view === 'cursor') requestAnimationFrame(drawCurve);
+  if (view === 'diag') requestAnimationFrame(() => {
+    const r = lastRes.range && !lastRes.range.error ? lastRes.range : null;
+    drawRings($('#ring-l'), r && r.left.bins); drawRings($('#ring-r'), r && r.right.bins);
+  });
+}
+
+// ---------------------------------------------------------------- saving
+let saveTimer = null;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 250); }
+async function saveNow() {
+  clearTimeout(saveTimer);
+  const r = await api.save(cfg);
+  if (r.error) toast(r.error, { bad: true });
+  return r;
+}
+function toast(msg, { bad = false, action, onAction, ms = 3500 } = {}) {
+  const t = h('div', { class: 'toast' + (bad ? ' bad' : '') }, h('span', {}, msg));
+  if (action) t.append(h('button', { onclick: () => { onAction(); t.remove(); } }, action));
+  $('#toasts').append(t); setTimeout(() => t.remove(), ms);
+}
+
+// ---------------------------------------------------------------- shortcuts view
+function renderLists() {
+  const entries = Object.entries(cfg.map);
+  const single = entries.filter(([c]) => !c.includes('+')).sort((a, b) => BUTTON_ORDER.indexOf(a[0]) - BUTTON_ORDER.indexOf(b[0]));
+  const combos = entries.filter(([c]) => c.includes('+'));
+  const list = rows => h('div', { class: 'list' }, rows.map(([c, a]) =>
+    h('div', { class: 'row', 'data-combo': c, tabindex: 0, onclick: () => openEditor(c), onkeydown: e => e.key === 'Enter' && openEditor(c) },
+      h('div', { class: 'chips' }, chipsFor(c)), h('span', { class: 'arrow' }, '→'),
+      h('div', { class: 'act' }, h('b', {}, label(a)), h('span', { class: 'mono' }, a)),
+      h('span', { class: 'badge' + (['toggle', 'dpi', 'switcher'].includes(kindOf(a)) ? ' acc' : '') }, KIND_BADGE[kindOf(a)] || kindOf(a)))));
+  $('#lists').replaceChildren(h('div', { class: 'group-label' }, `Buttons · ${single.length}`),
+    single.length ? list(single) : h('p', { class: 'empty' }, 'No single-button shortcuts.'));
+  $('#combo-list').replaceChildren(h('div', { class: 'group-label' }, `Combos · ${combos.length}`),
+    combos.length ? list(combos) : h('p', { class: 'empty' }, 'No combos yet. Press Add combo, then Record and hold the buttons together.'));
+}
+function refreshAll() { renderCallouts(); renderLists(); }
+
+// ---------------------------------------------------------------- cursor view
+const FIELDS = {
+  cursor: [['mouse_speed', 'Speed', 100, 3000, 10, v => v + ' px/s'], ['mouse_curve', 'Curve', 1, 4, .05, v => v.toFixed(2)],
+    ['deadzone', 'Deadzone', .02, .3, .01, v => Math.round(v * 100) + '%'], ['mouse_boost', 'Edge boost', 1, 5, .1, v => '×' + v.toFixed(1)],
+    ['mouse_boost_ramp_ms', 'Boost ramp', 100, 2000, 50, v => v + ' ms']],
+  scroll: [['scroll_speed', 'Speed', 1, 30, .5, v => v + ' /s'], ['scroll_curve', 'Curve', 1, 4, .05, v => v.toFixed(2)]],
+  timing: [['trigger_threshold', 'Trigger press at', 10, 250, 5, v => Math.round(v / 2.55) + '%'],
+    ['repeat_delay_ms', 'Repeat after', 150, 1000, 10, v => v + ' ms'], ['repeat_rate_ms', 'Repeat every', 15, 150, 5, v => v + ' ms'],
+    ['switcher_timeout_ms', 'Switcher wait', 300, 2500, 50, v => v + ' ms']],
+};
+function slider([k, text, min, max, step, fmt]) {
+  const out = h('output', {}, fmt(cfg[k]));
+  const inp = h('input', { type: 'range', min, max, step, value: cfg[k], id: 'f-' + k, 'aria-label': text });
+  const paint = () => inp.style.setProperty('--p', ((inp.value - min) / (max - min) * 100) + '%');
+  inp.addEventListener('input', () => { cfg[k] = Number(inp.value); out.textContent = fmt(cfg[k]); paint(); drawCurve(); saveSoon(); });
+  paint();
+  return h('div', { class: 'field' }, h('label', { for: 'f-' + k }, text), inp, out);
+}
+function seg(k, options, onChange) {
+  const el = h('div', { class: 'seg', role: 'radiogroup' });
+  const paint = () => $$('button', el).forEach(b => b.classList.toggle('on', b.dataset.v === cfg[k]));
+  for (const [v, t] of options) el.append(h('button', { 'data-v': v, onclick: () => { cfg[k] = v; paint(); onChange && onChange(); saveSoon(); } }, t));
+  paint(); return el;
+}
+function renderCursor() {
+  const scrollSeg = seg('scroll_stick', [['left', 'Left'], ['right', 'Right'], ['none', 'Off']], renderCallouts);
+  const syncScroll = () => {
+    const both = cfg.mouse_stick === 'both';
+    scrollSeg.classList.toggle('disabled', both);
+    $('#scroll-note').textContent = both ? 'Both sticks move the cursor. Push both at once to scroll.' : 'Push the scroll stick to scroll pages.';
+  };
+  $('#f-cursor').replaceChildren(
+    h('div', { class: 'field' }, h('label', {}, 'Stick'), seg('mouse_stick', [['left', 'Left'], ['right', 'Right'], ['both', 'Both'], ['none', 'Off']], () => { syncScroll(); renderCallouts(); drawCurve(); }), h('span')),
+    ...FIELDS.cursor.map(slider));
+  $('#f-scroll').replaceChildren(h('div', { class: 'field' }, h('label', {}, 'Stick'), scrollSeg, h('span')), ...FIELDS.scroll.map(slider));
+  $('#f-timing').replaceChildren(...FIELDS.timing.map(slider));
+  syncScroll();
+  $('#presets').replaceChildren(...cfg.dpi_levels.map((v, i) => {
+    const inp = h('input', { type: 'number', min: 50, max: 5000, step: 50, value: v, 'aria-label': 'Preset ' + (i + 1) });
+    inp.addEventListener('change', () => { cfg.dpi_levels[i] = Math.max(50, Math.min(5000, Number(inp.value) || v)); cfg.dpi_levels.sort((a, b) => a - b); renderCursor(); saveSoon(); });
+    return inp;
+  }), h('span', { class: 'note', style: 'align-self:center' }, 'px/s at full tilt'));
+}
+function drawCurve() {
+  const c = $('#curve'); if (!c || !cfg) return;
+  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (!W) return;
+  if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+  const L = 44, R = 14, T = 14, B = 28, pw = W - L - R, ph = H - T - B;
+  const speed = S && S.speed ? S.speed : cfg.mouse_speed, dz = cfg.deadzone, cv = cfg.mouse_curve;
+  const top = speed * cfg.mouse_boost * 1.1;
+  const X = t => L + t * pw, Y = v => T + ph - v / top * ph;
+  const f = t => t <= dz ? 0 : speed * Math.pow((t - dz) / (1 - dz), cv);
+  g.fillStyle = 'oklch(100% 0 0 / .05)'; g.fillRect(X(0), T, X(dz) - X(0), ph);
+  g.strokeStyle = 'oklch(100% 0 0 / .07)'; g.lineWidth = 1; g.font = '11px Segoe UI'; g.fillStyle = col('--tx3');
+  for (let i = 0; i <= 4; i++) {
+    const v = top / 1.1 * i / 4, y = Y(v);
+    g.beginPath(); g.moveTo(L, y); g.lineTo(W - R, y); g.stroke();
+    g.textAlign = 'right'; g.fillText(Math.round(v), L - 8, y + 4);
+  }
+  g.textAlign = 'center';
+  for (const t of [0, .25, .5, .75, 1]) g.fillText(Math.round(t * 100) + '%', X(t), H - 8);
+  g.beginPath(); for (let i = 0; i <= 200; i++) { const t = i / 200; i ? g.lineTo(X(t), Y(f(t))) : g.moveTo(X(t), Y(f(t))); }
+  g.strokeStyle = col('--acc'); g.lineWidth = 2.5; g.stroke();
+  g.setLineDash([5, 5]); g.strokeStyle = col('--acc-2'); g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(X(.92), Y(f(.92))); g.lineTo(X(1), Y(speed * cfg.mouse_boost)); g.lineTo(W - R, Y(speed * cfg.mouse_boost)); g.stroke();
+  g.setLineDash([]);
+  g.textAlign = 'right'; g.fillStyle = col('--acc-2'); g.fillText('held: ' + Math.round(speed * cfg.mouse_boost) + ' px/s', W - R, Y(speed * cfg.mouse_boost) - 7);
+  if (S && S.connected && cfg.mouse_stick !== 'none') {
+    const mag = (x, y) => Math.min(1, Math.hypot(x, y));
+    const t = cfg.mouse_stick === 'left' ? mag(S.lx, S.ly) : cfg.mouse_stick === 'right' ? mag(S.rx, S.ry) : Math.max(mag(S.lx, S.ly), mag(S.rx, S.ry));
+    g.beginPath(); g.arc(X(t), Y(f(t)), 6, 0, 7); g.fillStyle = col('--tx'); g.fill();
+    g.lineWidth = 3; g.strokeStyle = col('--acc'); g.stroke();
+  }
+}
+
+// ---------------------------------------------------------------- diagnostics view
+const trail = { l: [], r: [] };
+function drawScope(c, x, y, tr) {
+  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (!W) return;
+  if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, R = W / 2 - 6, css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+  g.fillStyle = 'oklch(19% 0.009 50)'; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.fill();
+  g.strokeStyle = 'oklch(100% 0 0 / .1)'; g.lineWidth = 1; g.stroke();
+  g.beginPath(); g.moveTo(cx - R, cy); g.lineTo(cx + R, cy); g.moveTo(cx, cy - R); g.lineTo(cx, cy + R); g.stroke();
+  g.setLineDash([3, 4]); g.beginPath(); g.arc(cx, cy, R * cfg.deadzone, 0, 7); g.stroke(); g.setLineDash([]);
+  if (tr.length > 1) {
+    g.beginPath(); tr.forEach(([a, b], i) => i ? g.lineTo(cx + a * R, cy - b * R) : g.moveTo(cx + a * R, cy - b * R));
+    g.strokeStyle = 'oklch(71% 0.165 48 / .35)'; g.lineWidth = 2; g.stroke();
+  }
+  g.beginPath(); g.arc(cx + x * R, cy - y * R, 7, 0, 7); g.fillStyle = col('--acc'); g.fill();
+}
+function drawTester(st) {
+  for (const [k, x, y] of [['l', st.lx, st.ly], ['r', st.rx, st.ry]]) {
+    trail[k].push([x, y]); if (trail[k].length > 90) trail[k].shift();
+    drawScope($('#sc-' + k), x, y, trail[k]);
+    $('#sv-' + k).textContent = `${(x * 100).toFixed(0).padStart(4)} ${(y * 100).toFixed(0).padStart(4)}`;
+  }
+  for (const k of ['lt', 'rt']) { $('#tb-' + k).style.width = (st[k] * 100) + '%'; $('#tv-' + k).textContent = Math.round(st[k] * 255); }
+  const held = new Set(st.held);
+  $$('#btn-grid .bchip').forEach(c => { const b = c.dataset.b; c.classList.toggle('lit', held.has(b)); c.lastChild.textContent = st.counts[b] || 0; });
+}
+const DTESTS = [
+  { id: 'poll', title: 'Polling rate', how: 'Press Start, then keep rolling a stick in circles until it finishes (5 s).' },
+  { id: 'rest', title: 'Drift & jitter', how: 'Press Start, put the controller down and don\'t touch it (4 s).' },
+  { id: 'range', title: 'Range & circularity', how: 'Press Start, then roll both sticks slowly around the outer edge, a few turns each way (10 s).' },
+  { id: 'deadzone', title: 'Deadzone', how: 'Press Start, then push both sticks very slowly out from the centre, in several directions (8 s).' },
+  { id: 'triggers', title: 'Triggers', how: 'Press Start, then squeeze both triggers slowly all the way in and out, a few times (6 s).' },
+];
+const lastRes = {};
+const VNAME = { good: 'Good', ok: 'OK', poor: 'Poor', incomplete: 'Incomplete' };
+const resRows = rows => h('div', { class: 'res' }, rows.flatMap(([k, v, verdict]) =>
+  [h('span', {}, k), h('b', {}, v), verdict ? h('span', { class: 'v ' + verdict }, VNAME[verdict]) : h('span')]));
+function drawRings(c, bins) {
+  const dpr = window.devicePixelRatio || 1, W = c.clientWidth, H = c.clientHeight;
+  if (!W) return;  // page hidden: nothing to draw yet
+  if (c.width !== W * dpr) { c.width = W * dpr; c.height = H * dpr; }
+  const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const cx = W / 2, cy = H / 2, R = W / 2 - 14;
+  g.strokeStyle = 'oklch(100% 0 0 / .15)'; g.setLineDash([3, 4]); g.beginPath(); g.arc(cx, cy, R, 0, 7); g.stroke(); g.setLineDash([]);
+  if (!bins) return;
+  g.beginPath();
+  bins.forEach((b, i) => { const a = (i * 10 + 5) * Math.PI / 180, r = Math.min(b, 1.3) * R; i ? g.lineTo(cx + Math.cos(a) * r, cy - Math.sin(a) * r) : g.moveTo(cx + Math.cos(a) * r, cy - Math.sin(a) * r); });
+  g.closePath(); g.fillStyle = 'oklch(71% 0.165 48 / .18)'; g.fill(); g.strokeStyle = 'oklch(71% 0.165 48)'; g.lineWidth = 2; g.stroke();
+}
+function renderResult(id, r) {
+  const box = $('#res-' + id);
+  if (r.error) { box.replaceChildren(h('p', { class: 'err', style: 'margin:0' }, r.error)); return; }
+  if (id === 'poll') box.replaceChildren(resRows([['Report rate', r.hz + ' Hz', r.verdict], ['Median interval', r.median_ms + ' ms'],
+    ['10th – 90th percentile', `${r.p10_ms} – ${r.p90_ms} ms`], ['Timing jitter (sd)', r.jitter_ms + ' ms'], ['Reports captured', r.reports]]));
+  if (id === 'rest') box.replaceChildren(resRows([['Worst drift', r.drift_pct + '% off centre', r.drift_verdict],
+    ['Worst jitter', 'sd ' + r.jitter_sd, r.jitter_verdict],
+    ...Object.entries(r.axes).map(([k, a]) => [k, `${a.offset_pct}% · sd ${a.jitter_sd}`]), ['Triggers at rest', `${r.lt_rest} / ${r.rt_rest}`]]));
+  if (id === 'range') {
+    drawRings($('#ring-l'), r.left.bins); drawRings($('#ring-r'), r.right.bins);
+    const side = (n, x) => x.covered < 18 ? [[n + ' stick', `only ${x.covered}/36 directions`, 'incomplete']] :
+      [[n + ' circularity', x.circularity_pct + '% error', x.verdict], [n + ' edge reach', `${x.min} · ${x.avg} · ${x.max}`], [n + ' coverage', `${x.covered}/36 directions`]];
+    box.replaceChildren(resRows([...side('Left', r.left), ...side('Right', r.right)]), h('p', { class: 'note' }, 'Edge reach is min · average · max, where 1.00 is the full circle.'));
+  }
+  if (id === 'deadzone') {
+    const side = (n, x) => [[n + ' smallest output', x.min_output_pct == null ? 'no movement' : x.min_output_pct + '%', x.verdict],
+      [n + ' resolution', `${x.distinct_x} × ${x.distinct_y} steps`], [n + ' at exact centre', x.zero_share_pct + '% of reports']];
+    box.replaceChildren(resRows([...side('Left', r.left), ...side('Right', r.right)]),
+      h('p', { class: 'note' }, 'Smallest output = the controller\'s own inner deadzone. Foxi\'s deadzone is applied on top.'));
+  }
+  if (id === 'triggers') box.replaceChildren(resRows(Object.entries(r).flatMap(([k, t]) =>
+    [[k + ' range', `${t.min} – ${t.max}`, t.verdict], [k + ' steps', `${t.distinct} of 256`]])));
+  if (id === 'poll') renderLatency();
+}
+async function runTest(id) {
+  const btn = $('#run-' + id), bar = $('#prog-' + id);
+  if (btn.dataset.running) { api.diag_stop(); return; }
+  const r = await api.diag_start(id);
+  if (!r.started) { toast('Another test is still running.', { bad: true }); return; }
+  btn.dataset.running = '1'; btn.textContent = 'Stop'; $('#res-' + id).replaceChildren(h('p', { class: 'dim', style: 'margin:0' }, 'Running…'));
+  const poll = async () => {
+    const st = await api.diag_status();
+    bar.style.width = (st.progress * 100) + '%';
+    if (st.live && id === 'range') { drawRings($('#ring-l'), st.live.bins); drawRings($('#ring-r'), st.live.bins_r); }
+    if (st.running) return setTimeout(poll, 100);
+    delete btn.dataset.running; btn.textContent = 'Run again';
+    lastRes[id] = st.result; renderResult(id, st.result || { error: 'No result.' });
+  };
+  poll();
+}
+async function renderLatency() {
+  const p = await api.perf(), poll = lastRes.poll && !lastRes.poll.error ? lastRes.poll : null;
+  const est = poll ? poll.median_ms / 2 + p.loop_ms / 2 + p.step_us / 1000 : null;
+  $('#res-latency').replaceChildren(resRows([
+    ['Controller report interval', poll ? poll.median_ms + ' ms' : 'run Polling rate'],
+    ['Foxi loop period', p.loop_ms + ' ms'], ['Foxi processing per tick', p.step_us + ' µs'],
+    ['Added delay (average)', est == null ? '—' : '≈ ' + est.toFixed(2) + ' ms', est == null ? null : est < 2 ? 'good' : est < 6 ? 'ok' : 'poor']]),
+    h('p', { class: 'note' }, 'This is the part software can measure: waiting for the next report, then Foxi reacting. The wireless link and the screen add more; measuring those needs a high-speed camera.'));
+}
+function buildDiag() {
+  $('#btn-grid').replaceChildren(...BUTTON_ORDER.map(b => h('div', { class: 'bchip', 'data-b': b }, NICE_BTN[b] || b, h('small', {}, '0'))));
+  $('#cnt-reset').onclick = () => api.counts_reset();
+  const card = (t, body) => h('div', { class: 'card dcard' },
+    h('div', { class: 'head' }, h('h2', {}, t.title), h('button', { class: 'btn', id: 'run-' + t.id, onclick: () => runTest(t.id) }, 'Start')),
+    h('p', { class: 'dim' }, t.how), h('div', { class: 'dprog' }, h('i', { id: 'prog-' + t.id })), body || null,
+    h('div', { id: 'res-' + t.id }, h('p', { class: 'dim', style: 'margin:0' }, 'Not run yet.')));
+  $('#tests').replaceChildren(
+    ...DTESTS.map(t => card(t, t.id === 'range' ? h('div', { class: 'rings' },
+      h('figure', {}, h('canvas', { id: 'ring-l' }), 'Left'), h('figure', {}, h('canvas', { id: 'ring-r' }), 'Right')) : null)),
+    h('div', { class: 'card dcard' }, h('div', { class: 'head' }, h('h2', {}, 'Rumble')),
+      h('p', { class: 'dim' }, 'Each motor on its own, then both. You should feel a heavy buzz (left) and a lighter one (right).'),
+      h('div', { class: 'row2', style: 'margin-top:0' }, ...[['left', 'Left motor'], ['right', 'Right motor'], ['both', 'Both']].map(([w, t]) =>
+        h('button', { class: 'btn', onclick: () => api.rumble(w) }, t)))),
+    h('div', { class: 'card dcard' }, h('div', { class: 'head' }, h('h2', {}, 'Latency'), h('button', { class: 'btn', onclick: renderLatency }, 'Refresh')),
+      h('p', { class: 'dim' }, 'How much delay the controller link and Foxi add.'), h('div', { id: 'res-latency' })));
+  renderLatency();
+}
+
+// ---------------------------------------------------------------- system view
+async function renderSystem() {
+  const st = await api.hidhide_status();
+  $('#hh-status').replaceChildren(st.installed ? h('span', { class: 'pill ok' }, '● Installed') : h('span', { class: 'pill warn' }, '● Not installed'));
+  const btn = $('#hh-btn');
+  btn.textContent = st.installed ? 'Refresh hidden devices' : 'Install HidHide (bundled)';
+  $('#hh-note').textContent = st.installed ? 'After plugging the dongle into another port, refresh once.' : 'One-time, needs admin. A reboot may be needed.';
+  btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = st.installed ? 'Refreshing…' : 'Installer open…';
+    const r = st.installed ? await api.hidhide_setup() : await api.hidhide_install();
+    btn.disabled = false;
+    if (r.error) toast(r.error, { bad: true });
+    else if (r.ids) toast(`Hiding ${r.ids.length} controller device${r.ids.length === 1 ? '' : 's'} from other apps.`);
+    renderSystem();
+  };
+  const PACKS = { macos: ['macOS', 'Clean, rounded, familiar.'], posy: ['Posy', 'Sharp black & white, high contrast.'], windows: ['Windows', 'Keep your own cursors.'] };
+  $('#packs').replaceChildren(...Object.entries(PACKS).map(([k, [n, d]]) => {
+    const pv = previews[k] || {};
+    const zone = (kind, t) => h('div', { style: pv[kind] ? `cursor:url(${pv[kind]}), auto` : (kind === 'hand' ? 'cursor:pointer' : kind === 'ibeam' ? 'cursor:text' : 'cursor:default') }, t);
+    return h('button', { class: 'pack' + (cfg.cursor_pack === k ? ' on' : ''), onclick: () => { cfg.cursor_pack = k; saveSoon(); renderSystem(); } },
+      h('b', {}, n), h('span', {}, d), h('div', { class: 'try' }, zone('arrow', 'Arrow'), zone('hand', 'Link'), zone('ibeam', 'Text')));
+  }));
+  $('#about').replaceChildren(
+    h('span', { class: 'dim' }, 'Version'), h('span', {}, info.version),
+    h('span', { class: 'dim' }, 'Settings'), h('span', { class: 'mono' }, info.config),
+    h('span', { class: 'dim' }, 'Error log'), h('span', { class: 'mono' }, info.log));
+}
+
+// ---------------------------------------------------------------- editor
+const TYPES = [
+  ['win', 'Windows feature', 'Clipboard, screenshot, emoji…'],
+  ['keys', 'Press keys', 'A key or shortcut, once'], ['repeat', 'Hold to repeat', 'Keeps pressing while held'],
+  ['mouse', 'Mouse button', 'Click, hold to drag'], ['run', 'Open program', 'App, file or command'],
+  ['switcher', 'Window switcher', 'Alt+Tab, press again to step'], ['dpi', 'Cursor speed', 'Cycle speed presets'],
+  ['toggle', 'Mouse ⇄ Game', 'Switch Foxi mode'],
+];
+const MODS = ['ctrl', 'shift', 'alt', 'win'];
+const SPECIAL = ['volume_up', 'volume_down', 'mute', 'play_pause', 'next', 'prev', 'stop', 'printscreen', 'menu', 'esc', 'enter', 'tab', 'space', 'backspace', 'delete'];
+const CODE = { Enter: 'enter', NumpadEnter: 'enter', Escape: 'esc', Space: 'space', Backspace: 'backspace', Delete: 'delete', Insert: 'insert',
+  Tab: 'tab', ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Home: 'home', End: 'end',
+  PageUp: 'pageup', PageDown: 'pagedown', PrintScreen: 'printscreen', ContextMenu: 'menu',
+  AudioVolumeUp: 'volume_up', AudioVolumeDown: 'volume_down', AudioVolumeMute: 'mute', MediaPlayPause: 'play_pause',
+  MediaTrackNext: 'next', MediaTrackPrevious: 'prev', MediaStop: 'stop' };
+function codeToKey(code) {
+  if (CODE[code]) return CODE[code];
+  let m;
+  if ((m = code.match(/^Key([A-Z])$/))) return m[1].toLowerCase();
+  if ((m = code.match(/^(?:Digit|Numpad)(\d)$/))) return m[1];
+  if ((m = code.match(/^F(\d{1,2})$/))) return 'f' + m[1];
+  return null;
+}
+let ed = null, recTimer = null;
+function parseAction(a) {
+  const [kind, ...rest] = (a || 'keys:').split(':'); const arg = rest.join(':');
+  if (WIN_FEATURES.some(([f]) => f === a)) return { kind: 'win', feature: a, mods: new Set(), key: '', mouse: 'left', run: '' };
+  const st = { kind, mods: new Set(), key: '', mouse: 'left', run: '', feature: 'keys:win+v' };
+  if (kind === 'keys' || kind === 'repeat') for (const k of arg.split('+').filter(Boolean)) MODS.includes(k) ? st.mods.add(k) : (st.key = k);
+  if (kind === 'mouse') st.mouse = arg || 'left';
+  if (kind === 'run') st.run = arg;
+  return st;
+}
+function buildAction() {
+  const { kind, mods, key, mouse, run } = ed;
+  if (kind === 'win') return ed.feature;
+  if (kind === 'keys' || kind === 'repeat') return kind + ':' + [...MODS.filter(m => mods.has(m)), key].filter(Boolean).join('+');
+  if (kind === 'mouse') return 'mouse:' + mouse;
+  if (kind === 'run') return 'run:' + run.trim();
+  return kind;
+}
+function openEditor(combo, fromPad = false) {
+  const exists = combo && cfg.map[combo] != null;
+  ed = { orig: exists ? combo : null, combo: combo || '', ...parseAction(exists ? cfg.map[combo] : null) };
+  $('#ed-title').textContent = exists ? 'Edit shortcut' : 'New shortcut';
+  $('#ed-sub').textContent = exists ? 'Changes save when you press Save.' : fromPad ? `Nothing is set for ${combo} yet.` : 'Pick buttons, then what they should do.';
+  $('#ed-del').style.visibility = exists ? 'visible' : 'hidden';
+  $('#ed-err').textContent = '';
+  renderEditor();
+  $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+  setTimeout(() => $('#ed-rec').focus(), 50);
+}
+function closeEditor() {
+  stopRecord(true);
+  $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true');
+  ed = null;
+}
+function renderEditor() {
+  $('#ed-chips').replaceChildren(...(ed.combo ? chipsFor(ed.combo) : [h('span', { class: 'dim' }, 'No buttons yet')]));
+  $('#ed-types').replaceChildren(...TYPES.map(([k, t, d]) => h('button', { class: 'type' + (ed.kind === k ? ' on' : ''),
+    onclick: () => { ed.kind = k; renderEditor(); } }, h('b', {}, t), h('span', {}, d))));
+  const v = $('#ed-value'); v.replaceChildren();
+  if (ed.kind === 'win') {
+    v.append(h('div', { class: 'sec-label' }, 'Feature'), h('div', { class: 'features' }, WIN_FEATURES.map(([a, n]) =>
+      h('button', { class: 'feat' + (ed.feature === a ? ' on' : ''), onclick: () => { ed.feature = a; renderEditor(); } },
+        h('b', {}, n), h('span', {}, a.slice(5).split('+').map(keyNice).join(' + '))))));
+  } else if (ed.kind === 'keys' || ed.kind === 'repeat') {
+    const box = h('div', { class: 'keybox', tabindex: 0 }, ed.key ? h('span', { class: 'cap-chip' }, keyNice(ed.key)) : 'Click here, then press a key');
+    box.addEventListener('keydown', e => {
+      e.preventDefault(); e.stopPropagation();
+      if (e.ctrlKey) ed.mods.add('ctrl'); if (e.shiftKey) ed.mods.add('shift'); if (e.altKey) ed.mods.add('alt'); if (e.metaKey) ed.mods.add('win');
+      const k = codeToKey(e.code);
+      if (k && info.keys.includes(k)) ed.key = k;
+      renderEditor(); $('.keybox').focus();
+    });
+    const special = h('select', { 'aria-label': 'Special key' }, h('option', { value: '' }, 'Special keys…'), SPECIAL.map(k => h('option', { value: k }, keyNice(k))));
+    special.addEventListener('change', () => { if (special.value) { ed.key = special.value; renderEditor(); } });
+    v.append(h('div', { class: 'sec-label' }, 'Keys'),
+      h('div', { class: 'mods' }, MODS.map(m => h('button', { class: ed.mods.has(m) ? 'on' : '', onclick: () => { ed.mods.has(m) ? ed.mods.delete(m) : ed.mods.add(m); renderEditor(); } }, keyNice(m)))),
+      box, h('div', { class: 'row2' }, special, ed.key || ed.mods.size ? h('button', { class: 'btn ghost', onclick: () => { ed.key = ''; ed.mods.clear(); renderEditor(); } }, 'Clear') : null),
+      h('p', { class: 'note' }, 'Win is a toggle above: pressing Win here would open the Start menu.'));
+  } else if (ed.kind === 'mouse') {
+    const el = h('div', { class: 'seg' });
+    for (const [m, t] of [['left', 'Left'], ['right', 'Right'], ['middle', 'Middle']])
+      el.append(h('button', { class: ed.mouse === m ? 'on' : '', onclick: () => { ed.mouse = m; renderEditor(); } }, t));
+    v.append(h('div', { class: 'sec-label' }, 'Button'), el, h('p', { class: 'note' }, 'Held for as long as you hold the controller button, so you can drag and select.'));
+  } else if (ed.kind === 'run') {
+    const inp = h('input', { class: 'text', value: ed.run, placeholder: 'notepad.exe  or  C:\\path\\app.exe  or  https://…' });
+    inp.addEventListener('input', () => { ed.run = inp.value; renderPreview(); });
+    v.append(h('div', { class: 'sec-label' }, 'Program'), inp);
+  } else {
+    const notes = { switcher: 'First press opens Alt+Tab. Each press within the wait time moves one window. Stop pressing to switch.',
+      dpi: 'Each press moves to the next speed preset (Cursor & scroll → Speed presets). The controller buzzes 1–3 times.',
+      toggle: 'Switches between Mouse & keys and Game. 2 buzzes = Mouse & keys, 3 = Game.' };
+    v.append(h('p', { class: 'note', style: 'margin:0' }, notes[ed.kind]));
+  }
+  renderPreview();
+}
+function renderPreview() {
+  const a = buildAction();
+  $('#ed-preview').replaceChildren(h('div', { class: 'chips' }, ed.combo ? chipsFor(ed.combo) : h('span', { class: 'dim' }, '?')),
+    h('span', { class: 'arrow' }, '→'), h('b', {}, label(a) || '…'), h('span', { class: 'mono dim', style: 'margin-left:auto' }, a));
+}
+async function startRecord() {
+  if (recTimer) return stopRecord(true);
+  await api.record_start();
+  $('#ed-trigger').classList.add('rec'); $('#ed-rec').textContent = 'Listening… (cancel)';
+  $('#ed-chips').replaceChildren(h('span', { class: 'dim' }, 'Hold buttons on the controller, then let go'));
+  const poll = async () => {
+    const r = await api.record_poll();
+    if (!ed) return;
+    if (r.done) { ed.combo = r.combo; stopRecord(false); renderEditor(); return; }
+    if (r.held) $('#ed-chips').replaceChildren(...chipsFor(r.held, r.held.split('+')));
+    recTimer = setTimeout(poll, 30);
+  };
+  recTimer = setTimeout(poll, 30);
+}
+function stopRecord(cancel) {
+  if (!recTimer) return;
+  clearTimeout(recTimer); recTimer = null;
+  if (cancel) api.record_cancel();
+  $('#ed-trigger').classList.remove('rec'); $('#ed-rec').textContent = 'Record';
+  if (ed && cancel) renderEditor();
+}
+async function saveEditor() {
+  if (!ed.combo) { $('#ed-err').textContent = 'Record the buttons first.'; return; }
+  const a = buildAction(), combo = ed.combo;
+  const chk = await api.check_action(a);
+  if (chk.error) { $('#ed-err').textContent = chk.error.replace(/^./, c => c.toUpperCase()); return; }
+  const prev = JSON.stringify(cfg.map);
+  if (ed.orig && ed.orig !== ed.combo) delete cfg.map[ed.orig];
+  const replaced = !ed.orig && cfg.map[ed.combo];
+  cfg.map[ed.combo] = a;
+  const r = await saveNow();
+  if (r.error) { cfg.map = JSON.parse(prev); $('#ed-err').textContent = r.error; return; }
+  closeEditor(); refreshAll();
+  toast(replaced ? `Replaced the old ${combo} shortcut` : 'Shortcut saved');
+}
+async function deleteEditor() {
+  const c = ed.orig, a = cfg.map[c];
+  delete cfg.map[c]; await saveNow(); closeEditor(); refreshAll();
+  toast(`Deleted ${c} → ${label(a)}`, { action: 'Undo', onAction: async () => { cfg.map[c] = a; await saveNow(); refreshAll(); }, ms: 6000 });
+}
+
+// ---------------------------------------------------------------- boot
+window.addEventListener('error', e => toast('UI error: ' + e.message, { bad: true, ms: 10000 }));
+window.addEventListener('unhandledrejection', e => toast('UI error: ' + (e.reason && e.reason.message || e.reason), { bad: true, ms: 10000 }));
+window.addEventListener('pywebviewready', async () => {
+  api = window.pywebview.api;
+  [info, cfg, previews] = await Promise.all([api.info(), api.config(), api.cursor_previews()]);
+  $('#ver').textContent = 'Foxi ' + info.version;
+  buildPad(); renderLists(); renderCursor(); renderSystem(); buildDiag(); show('controller');
+  $$('.nav').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
+  $$('#mode button').forEach(b => b.addEventListener('click', () => { if (S && S.mode !== b.dataset.mode) api.toggle(); }));
+  $('#add').addEventListener('click', () => openEditor(null));
+  $('#add-combo').addEventListener('click', () => openEditor(null));
+  $('#reset').addEventListener('click', async () => {
+    const before = JSON.parse(JSON.stringify(cfg));
+    cfg = await api.defaults(); await saveNow(); refreshAll(); renderCursor(); renderSystem();
+    toast('Reset to defaults', { action: 'Undo', onAction: async () => { cfg = before; await saveNow(); refreshAll(); renderCursor(); renderSystem(); }, ms: 6000 });
+  });
+  $('#open-folder').addEventListener('click', () => api.open_folder());
+  $('#ed-rec').addEventListener('click', startRecord);
+  $('#ed-save').addEventListener('click', saveEditor);
+  $('#ed-cancel').addEventListener('click', closeEditor);
+  $('#ed-del').addEventListener('click', deleteEditor);
+  $('#scrim').addEventListener('click', closeEditor);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && ed) closeEditor(); });
+  window.addEventListener('resize', drawCurve);
+  loop();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+.venv/
+.python/
+.cache/
+build/
+dist/
+data/
+__pycache__/
+*.spec
+*.log
+foxi.json
+tools/uv.exe
+vendor/hidhide/*.exe
