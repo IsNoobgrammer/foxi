@@ -40,10 +40,10 @@ DEFAULT_CONFIG = {
     'map': {
         'LT': 'mouse:left', 'RT': 'mouse:right',
         'UP': 'repeat:up', 'DOWN': 'repeat:down', 'LEFT': 'repeat:left', 'RIGHT': 'repeat:right',
-        'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'hold:backspace>ctrl+backspace', 'Y': 'keys:esc',
-        'A': 'keys:space', 'B': 'keys:tab',
-        'LS+B': 'keys:win+shift+s',  # left back button (L3) + B: screenshot (B alone stays Tab)
-        'LS+Y': 'switcher',          # L3 + Y: Alt+Tab switcher (Y alone is Esc)
+        'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'hold:backspace>ctrl+backspace', 'Y': 'keys:tab',
+        'A': 'keys:space', 'B': 'keys:esc',  # B = back/cancel, as on consoles
+        'LS+B': 'keys:win+shift+s',  # left back button (L3) + B: screenshot (B alone stays Esc)
+        'LS+Y': 'switcher',          # L3 + Y: Alt+Tab switcher (Y alone is Tab)
         'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu',
     },
     # START opens this list near the cursor: D-pad moves, X picks, B closes. keys: presses, text: types.
@@ -594,7 +594,7 @@ def test_menu_press_is_consumed():
 
 
 def test_hold_and_space_combo():
-    """RB tap = Backspace, held = Ctrl+Backspace repeating; A = Space, B = Tab, L3 + B = screenshot only."""
+    """RB tap = Backspace, held = Ctrl+Backspace repeating; A = Space, B = Esc, Y = Tab, L3 + B = screenshot only."""
     import tempfile
     g = globals()
     saved = {k: g[k] for k in ('start', 'tap', 'key', 'cloak', 'set_cursor_pack', 'hidhide_sync')}
@@ -627,14 +627,14 @@ def test_hold_and_space_combo():
         assert fired[1:] == ['tap:ctrl+backspace'] * 3, fired
         tick(0); fired.clear()
         tick(BUTTONS['A']); tick(0); tick(B); tick(0)           # A, then B
-        assert fired == ['keys:space', 'keys:tab'], fired
+        assert fired == ['keys:space', 'keys:esc'], fired
         fired.clear()
         tick(LS); tick(LS | B); tick(LS); tick(0)               # L3 held, B tapped
-        assert fired == ['keys:win+shift+s'], fired             # screenshot only, no Tab
+        assert fired == ['keys:win+shift+s'], fired             # screenshot only, no Esc
         fired.clear()
-        tick(BUTTONS['Y']); tick(0)                              # Y alone = Esc
+        tick(BUTTONS['Y']); tick(0)                              # Y alone = Tab
         tick(LS); tick(LS | BUTTONS['Y']); tick(LS); tick(LS | BUTTONS['Y'])  # L3 held, Y twice = switcher steps
-        assert fired == ['keys:esc', 'tap:tab', 'tap:tab'], fired
+        assert fired == ['keys:tab', 'tap:tab', 'tap:tab'], fired
         assert eng.switch_until, 'switcher stays open while L3 is held'
     finally:
         g.update(saved)
