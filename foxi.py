@@ -140,7 +140,9 @@ class Api:
 
     def menu_state(self):
         e = self._eng
-        return {'open': e.menu_open, 'index': e.menu_index, 'items': e.cfg['quick_menu'] if e.cfg else []}
+        if not e.cfg:
+            return {'open': False, 'index': 0, 'items': [], 'crumbs': []}
+        return {'open': e.menu_open, 'index': e.menu_index, 'items': e.menu_items(), 'crumbs': e.menu_crumbs()}
 
     def menu_pick(self, i):
         self._eng.menu_pick(int(i))
@@ -186,6 +188,13 @@ def own_window(title, pid=None):
         return True
     u.EnumWindows(visit, 0)
     return found[0] if found else None
+
+
+def menu_rows(eng):
+    """Height of the current level in rows; the most-used / categories divider counts as half a row."""
+    items = eng.menu_items()
+    split = not eng.menu_path and any('items' in i for i in items) and any('items' not in i for i in items)
+    return len(items) + (0.6 if split else 0)
 
 
 def show_menu(opened, rows):
@@ -235,7 +244,7 @@ def main():
     menu = webview.create_window(MENU_TITLE, url=os.path.join(RES, 'ui', 'menu.html'), js_api=api,
                                  width=MENU_W, height=360, x=OFFSCREEN, y=OFFSCREEN, frameless=True, easy_drag=False,
                                  on_top=True, focus=False, resizable=False, background_color='#1f1b18')
-    eng.on_menu = lambda opened: show_menu(opened, len(eng.cfg['quick_menu']))
+    eng.on_menu = lambda opened: show_menu(opened, menu_rows(eng))
 
     def prepare_menu():
         """Rounded corners; keep it out of the taskbar, Alt+Tab and Task View; never takes focus.

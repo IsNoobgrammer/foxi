@@ -33,6 +33,14 @@ li.on .n, li.on b, li.on .hint { color: var(--on-acc); }
 li.on .k { background: oklch(100% 0 0 / .25); border-color: transparent; color: var(--on-acc); }
 li:hover:not(.on) { background: var(--s2); }
 footer { padding: 8px 14px 12px; color: var(--tx3); font-size: 12px; border-top: 1px solid var(--line); }
+header .crumb { color: var(--tx3); font-weight: 600; }
+header .crumb b { color: var(--tx); }
+li.div { height: 28px; padding: 0 10px; color: var(--tx3); font: 600 10.5px var(--font); letter-spacing: .1em; text-transform: uppercase;
+  align-items: flex-end; padding-bottom: 6px; }
+li.div:hover { background: none !important; }
+li .cnt { color: var(--tx3); font-size: 12px; font-variant-numeric: tabular-nums; }
+li .chev { color: var(--tx3); font-size: 16px; margin-left: 2px; }
+li.on .cnt, li.on .chev { color: var(--on-acc); }
 footer b { color: var(--tx2); font-weight: 600; }
 </style>
 </head>
@@ -41,10 +49,10 @@ footer b { color: var(--tx2); font-weight: 600; }
   <header>
     <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 5 L12 11 H20 L27 5 L26 17 L16 28 L6 17 Z" fill="oklch(71% 0.165 48)"/>
       <path d="M10 18 L16 24 L22 18 L16 20 Z" fill="oklch(93% 0.02 70)"/></svg>
-    Quick menu <span class="chip">Foxi</span>
+    <span id="title">Quick menu</span> <span class="chip">Foxi</span>
   </header>
   <ul id="list"></ul>
-  <footer><b>D-pad</b> move · <b>X</b> select · <b>B</b> close</footer>
+  <footer id="foot"></footer>
 </div>
 <script>
 'use strict';
@@ -60,19 +68,39 @@ function hint(action) {
   return span;
 }
 function render(st) {
-  const key = JSON.stringify([st.items, st.index]);
+  const key = JSON.stringify([st.items, st.index, st.crumbs]);
   if (key === last) return;
   last = key;
-  const list = document.getElementById('list');
-  list.replaceChildren(...st.items.map((it, i) => {
+  const title = document.getElementById('title');
+  title.replaceChildren(...(st.crumbs.length
+    ? [Object.assign(document.createElement('span'), { className: 'crumb', textContent: 'Quick menu › ' }),
+       Object.assign(document.createElement('b'), { textContent: st.crumbs.join(' › ') })]
+    : [document.createTextNode('Quick menu')]));
+  const top = !st.crumbs.length, rows = [];
+  let shownDivider = false;
+  st.items.forEach((it, i) => {
+    const cat = 'items' in it;
+    if (top && cat && !shownDivider && i > 0) {
+      const d = document.createElement('li'); d.className = 'div'; d.textContent = 'Categories'; rows.push(d);
+    }
+    if (cat) shownDivider = true;
     const li = document.createElement('li');
     li.className = i === st.index ? 'on' : '';
     const n = document.createElement('span'); n.className = 'n'; n.textContent = i + 1;
     const b = document.createElement('b'); b.textContent = it.label;
-    li.append(n, b, hint(it.action));
+    li.append(n, b);
+    if (cat) {
+      const c = document.createElement('span'); c.className = 'cnt'; c.textContent = it.items.length;
+      const v = document.createElement('span'); v.className = 'chev'; v.textContent = '›';
+      li.append(c, v);
+    } else li.append(hint(it.action));
     li.addEventListener('click', () => window.pywebview.api.menu_pick(i));
-    return li;
-  }));
+    rows.push(li);
+  });
+  document.getElementById('list').replaceChildren(...rows);
+  document.getElementById('foot').innerHTML = top
+    ? '<b>D-pad</b> move · <b>X</b> pick / open · <b>B</b> close'
+    : '<b>D-pad</b> move · <b>X</b> pick · <b>B</b> back';
 }
 async function poll() {
   try { render(await window.pywebview.api.menu_state()); } catch (e) { /* window still starting */ }

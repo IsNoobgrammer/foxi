@@ -234,6 +234,13 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
 .qrow.drop-above { box-shadow: inset 0 2px 0 var(--acc); }
 .qrow.drop-below { box-shadow: inset 0 -2px 0 var(--acc); }
 .qrow .grip { color: var(--tx3); cursor: grab; text-align: center; font-size: 15px; letter-spacing: -2px; }
+.qrow.cat { background: oklch(22% 0.011 50); }
+.qrow.cat .n { color: var(--acc); }
+.qrow.child { padding-left: 34px; }
+.qrow.child .act b { font-weight: 500; }
+.qrow.empty-cat { cursor: default; }
+.qm-prev li.pdiv { height: 26px; padding: 0 10px 4px; align-items: flex-end; color: var(--tx3); font: 600 10.5px var(--font);
+  letter-spacing: .1em; text-transform: uppercase; }
 .qrow .n { color: var(--tx3); font-variant-numeric: tabular-nums; text-align: right; }
 .qrow .act { min-width: 0; }
 .qrow .act b, .qrow .act .mono { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -455,6 +462,7 @@ select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(
         <div class="toolbar">
           <span class="grow" id="qm-opener"></span>
           <button class="btn ghost" id="qm-reset">Reset menu</button>
+          <button class="btn" id="qm-add-cat"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add category</button>
           <button class="btn primary" id="qm-add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add item</button>
         </div>
         <div class="qm-grid">
@@ -538,6 +546,10 @@ select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(
       <div class="sec-label">Label</div>
       <input class="text" id="ed-label" placeholder="Shown in the menu, e.g. Paste">
       <p class="note">Leave empty to use the action's name.</p>
+    </div>
+    <div id="ed-where-sec" hidden>
+      <div class="sec-label">Put in</div>
+      <select id="ed-where" style="width:100%"></select>
     </div>
     <div id="ed-trigger-sec">
       <div class="sec-label">When I press</div>
@@ -835,36 +847,41 @@ function renderLists() {
     combos.length ? list(combos) : h('p', { class: 'empty' }, 'No combos yet. Press Add combo, then Record and hold the buttons together.'));
 }
 const MENU_TYPES = ['win', 'keys', 'text', 'run'];
-let qmHot = 0;
+let qmHot = { parent: null, index: 0 };   // what the preview shows: top level, or a category's items
+const isCat = it => it && Array.isArray(it.items);
+const listAt = parent => parent == null ? cfg.quick_menu : cfg.quick_menu[parent].items;
 function menuHint(a) {
   const [kind, ...rest] = a.split(':'); const arg = rest.join(':');
   if (kind === 'keys') return arg.split('+').map(keyNice).join(' + ');
   if (kind === 'text') return arg;
   return 'opens ' + arg.split(/[\\/]/).pop();
 }
+async function commitMenu(msg, undo) {
+  const r = await saveNow();
+  renderQuickMenu(); renderOverview();
+  if (msg && !r.error) toast(msg, undo ? { action: 'Undo', onAction: undo, ms: 6000 } : {});
+  return r;
+}
 function renderQuickMenu() {
-  const items = cfg.quick_menu;
+  const top = cfg.quick_menu;
   const opener = Object.entries(cfg.map).filter(([, a]) => a === 'menu').map(([c]) => c);
   $('#qm-opener').replaceChildren(...(opener.length
-    ? ['Opens with ', ...opener.flatMap((c, i) => [i ? ' or ' : '', h('span', { class: 'chips', style: 'display:inline-flex;vertical-align:middle;margin-left:4px' }, chipsFor(c))]), '. D-pad moves, X picks, B closes.']
-    : ['No button opens the menu yet. ', h('button', { class: 'btn', onclick: async () => { cfg.map.START = 'menu'; await saveNow(); refreshAll(); toast('Menu button now opens the quick menu'); } }, 'Use the Menu button')]));
-  $('#qm-count').textContent = `Items · ${items.length}`;
-  let dragFrom = null;
-  $('#qm-list').replaceChildren(...(items.length ? items.map((it, i) => {
-    const kind = kindOf(it.action);
-    const row = h('div', { class: 'qrow' + (i === qmHot ? ' hot' : ''), draggable: 'true', tabindex: 0,
-      onclick: e => { if (!e.target.closest('.tools')) openMenuItem(i); }, onkeydown: e => e.key === 'Enter' && openMenuItem(i),
-      onmouseenter: () => { qmHot = i; renderMenuPreview(); } },
-      h('span', { class: 'grip', title: 'Drag to reorder' }, '⋮⋮'), h('span', { class: 'n' }, i + 1),
-      h('div', { class: 'act' }, h('b', {}, it.label), h('span', { class: 'mono' }, it.action)),
-      h('span', { class: 'badge' }, WIN_FEATURES.some(([f]) => f === it.action) ? 'Windows' : KIND_BADGE[kind] || kind),
-      h('div', { class: 'tools' },
-        h('button', { title: 'Move up', 'aria-label': 'Move up', onclick: () => moveItem(i, i - 1) }, '↑'),
-        h('button', { title: 'Move down', 'aria-label': 'Move down', onclick: () => moveItem(i, i + 1) }, '↓'),
-        h('button', { title: 'Delete', 'aria-label': 'Delete', onclick: () => deleteMenuItem(i) }, '✕')));
-    row.addEventListener('dragstart', e => { dragFrom = i; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    ? ['Opens with ', ...opener.flatMap((c, i) => [i ? ' or ' : '', h('span', { class: 'chips', style: 'display:inline-flex;vertical-align:middle;margin-left:4px' }, chipsFor(c))]),
+       '. D-pad moves, X picks or opens a category, B goes back.']
+    : ['No button opens the menu yet. ', h('button', { class: 'btn', onclick: async () => { cfg.map.START = 'menu'; await commitMenu('Menu button now opens the quick menu'); renderCallouts(); } }, 'Use the Menu button')]));
+  const nActions = top.filter(it => !isCat(it)).length, nCats = top.filter(isCat).length;
+  $('#qm-count').textContent = `Most used · ${nActions}   ·   Categories · ${nCats}`;
+  let drag = null;
+  const tools = (parent, i, extra = []) => h('div', { class: 'tools' }, ...extra,
+    h('button', { title: 'Move up', 'aria-label': 'Move up', onclick: () => moveItem(parent, i, i - 1) }, '↑'),
+    h('button', { title: 'Move down', 'aria-label': 'Move down', onclick: () => moveItem(parent, i, i + 1) }, '↓'),
+    h('button', { title: 'Delete', 'aria-label': 'Delete', onclick: () => deleteMenuItem(parent, i) }, '✕'));
+  const dnd = (row, parent, i) => {
+    row.draggable = true;
+    row.addEventListener('dragstart', e => { drag = { parent, i }; row.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.stopPropagation(); });
     row.addEventListener('dragend', () => row.classList.remove('dragging'));
     row.addEventListener('dragover', e => {
+      if (!drag || drag.parent !== parent) return;      // reorder within the same level; use "Put in" to move between
       e.preventDefault();
       const below = e.offsetY > row.clientHeight / 2;
       row.classList.toggle('drop-below', below); row.classList.toggle('drop-above', !below);
@@ -872,64 +889,142 @@ function renderQuickMenu() {
     row.addEventListener('dragleave', () => row.classList.remove('drop-above', 'drop-below'));
     row.addEventListener('drop', e => {
       e.preventDefault(); row.classList.remove('drop-above', 'drop-below');
-      if (dragFrom == null) return;
+      if (!drag || drag.parent !== parent) return;
       let to = i + (e.offsetY > row.clientHeight / 2 ? 1 : 0);
-      if (dragFrom < to) to--;
-      moveItem(dragFrom, to); dragFrom = null;
+      if (drag.i < to) to--;
+      moveItem(parent, drag.i, to); drag = null;
     });
+  };
+  const itemRow = (it, parent, i) => {
+    const kind = kindOf(it.action);
+    const row = h('div', { class: 'qrow' + (parent != null ? ' child' : '') + (qmHot.parent === parent && qmHot.index === i ? ' hot' : ''), tabindex: 0,
+      onclick: e => { if (!e.target.closest('.tools')) openMenuItem(parent, i); }, onkeydown: e => e.key === 'Enter' && openMenuItem(parent, i),
+      onmouseenter: () => { qmHot = { parent, index: i }; renderMenuPreview(); } },
+      h('span', { class: 'grip', title: 'Drag to reorder' }, '⋮⋮'), h('span', { class: 'n' }, i + 1),
+      h('div', { class: 'act' }, h('b', {}, it.label), h('span', { class: 'mono' }, it.action)),
+      h('span', { class: 'badge' }, WIN_FEATURES.some(([f]) => f === it.action) ? 'Windows' : KIND_BADGE[kind] || kind),
+      tools(parent, i));
+    dnd(row, parent, i);
     return row;
-  }) : [h('p', { class: 'empty', style: 'padding:16px' }, 'The menu is empty. Add an item to get started.')]));
+  };
+  const rows = [];
+  top.forEach((it, i) => {
+    if (!isCat(it)) { rows.push(itemRow(it, null, i)); return; }
+    const head = h('div', { class: 'qrow cat' + (qmHot.parent === i ? ' hot' : ''), tabindex: 0,
+      onclick: e => { if (!e.target.closest('.tools')) openCategory(i); },
+      onmouseenter: () => { qmHot = { parent: i, index: 0 }; renderMenuPreview(); } },
+      h('span', { class: 'grip', title: 'Drag to reorder' }, '⋮⋮'), h('span', { class: 'n' }, '▸'),
+      h('div', { class: 'act' }, h('b', {}, it.label), h('span', { class: 'mono' }, `${it.items.length} item${it.items.length === 1 ? '' : 's'} · X opens it in the menu`)),
+      h('span', { class: 'badge acc' }, 'Category'),
+      tools(null, i, [h('button', { title: 'Add an item to this category', 'aria-label': 'Add item', onclick: () => openMenuItem(i, null) }, '+')]));
+    dnd(head, null, i);
+    rows.push(head, ...it.items.map((c, j) => itemRow(c, i, j)));
+    if (!it.items.length) rows.push(h('div', { class: 'qrow child empty-cat' }, h('span'), h('span'),
+      h('span', { class: 'dim' }, 'Empty. Press + to add an item.')));
+  });
+  $('#qm-list').replaceChildren(...(rows.length ? rows : [h('p', { class: 'empty', style: 'padding:16px' }, 'The menu is empty. Add an item to get started.')]));
   renderMenuPreview();
 }
 function renderMenuPreview() {
-  const items = cfg.quick_menu;
+  const parent = qmHot.parent != null && isCat(cfg.quick_menu[qmHot.parent]) ? qmHot.parent : null;
+  const items = listAt(parent), hot = parent == null ? qmHot.index : (qmHot.parent === parent ? qmHot.index : 0);
+  const lis = [];
+  let div = false;
+  items.forEach((it, i) => {
+    if (parent == null && isCat(it) && !div && i > 0) lis.push(h('li', { class: 'pdiv' }, 'Categories'));
+    if (isCat(it)) div = true;
+    lis.push(h('li', { class: i === hot ? 'on' : '' }, h('span', { class: 'n' }, i + 1), h('b', {}, it.label),
+      isCat(it) ? h('span', { class: 'hint' }, `${it.items.length} ›`) : h('span', { class: 'hint' }, menuHint(it.action))));
+  });
   $('#qm-prev').replaceChildren(
-    h('div', { class: 'ph' }, h('span', { style: 'color:var(--acc)' }, '◆'), 'Quick menu', h('small', {}, 'Foxi')),
-    items.length ? h('ul', {}, items.map((it, i) => h('li', { class: i === qmHot ? 'on' : '' },
-      h('span', { class: 'n' }, i + 1), h('b', {}, it.label), h('span', { class: 'hint' }, menuHint(it.action)))))
-      : h('p', { class: 'empty' }, 'Nothing to show.'),
-    h('div', { class: 'pf' }, 'D-pad move · X select · B close'));
+    h('div', { class: 'ph' }, h('span', { style: 'color:var(--acc)' }, '◆'),
+      parent == null ? 'Quick menu' : h('span', {}, h('span', { class: 'dim' }, 'Quick menu › '), cfg.quick_menu[parent].label), h('small', {}, 'Foxi')),
+    lis.length ? h('ul', {}, lis) : h('p', { class: 'empty' }, 'Nothing to show.'),
+    h('div', { class: 'pf' }, parent == null ? 'D-pad move · X pick / open · B close' : 'D-pad move · X pick · B back'));
 }
-async function moveItem(from, to) {
-  const items = cfg.quick_menu;
-  if (to < 0 || to >= items.length || from === to) return;
-  items.splice(to, 0, items.splice(from, 1)[0]);
-  qmHot = to; await saveNow(); renderQuickMenu(); renderOverview();
+async function moveItem(parent, from, to) {
+  const list = listAt(parent);
+  if (to < 0 || to >= list.length || from === to) return;
+  list.splice(to, 0, list.splice(from, 1)[0]);
+  qmHot = parent == null && isCat(list[to]) ? { parent: to, index: 0 } : { parent, index: to };
+  await commitMenu();
 }
-async function deleteMenuItem(i) {
-  const it = cfg.quick_menu.splice(i, 1)[0];
-  qmHot = Math.min(qmHot, cfg.quick_menu.length - 1);
-  await saveNow(); renderQuickMenu(); renderOverview();
-  toast(`Removed “${it.label}”`, { action: 'Undo', onAction: async () => { cfg.quick_menu.splice(i, 0, it); await saveNow(); renderQuickMenu(); }, ms: 6000 });
+async function deleteMenuItem(parent, i) {
+  const list = listAt(parent), it = list.splice(i, 1)[0];
+  qmHot = { parent: null, index: 0 };
+  await commitMenu(isCat(it) ? `Removed category “${it.label}” and its ${it.items.length} items` : `Removed “${it.label}”`,
+    async () => { listAt(parent).splice(i, 0, it); await commitMenu(); });
 }
-function openMenuItem(i = null) {
-  const it = i == null ? null : cfg.quick_menu[i];
-  ed = { orig: null, combo: '', menu: { index: i }, ...parseAction(it ? it.action : 'text:') };
+function edSections(menuMode, catMode) {
+  $('#ed-label-sec').hidden = !menuMode; $('#ed-trigger-sec').hidden = menuMode;
+  $('#ed-types').parentElement.hidden = catMode; $('#ed-value').hidden = catMode; $('#ed-preview').parentElement.hidden = catMode;
+  $('#ed-where-sec').hidden = !menuMode || catMode;
+}
+function openDrawer(focus) {
+  $('#ed-err').textContent = '';
+  $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+  setTimeout(() => $(focus).focus(), 50);
+}
+function openMenuItem(parent = null, i = null) {
+  const it = i == null ? null : listAt(parent)[i];
+  ed = { orig: null, combo: '', menu: { parent, index: i }, ...parseAction(it ? it.action : 'text:') };
   if (!it) ed.kind = 'text';
   $('#ed-title').textContent = it ? 'Edit menu item' : 'New menu item';
-  $('#ed-sub').textContent = it ? `Item ${i + 1} of the quick menu.` : 'Added to the end of the quick menu.';
+  $('#ed-sub').textContent = parent == null ? 'Shown at the top of the quick menu (most used).' : `Inside the “${cfg.quick_menu[parent].label}” category.`;
   $('#ed-label').value = it ? it.label : '';
-  $('#ed-label-sec').hidden = false; $('#ed-trigger-sec').hidden = true;
+  $('#ed-where').replaceChildren(h('option', { value: '' }, 'Most used (top of the menu)'),
+    ...cfg.quick_menu.map((c, k) => isCat(c) ? h('option', { value: k, selected: k === parent }, 'Category: ' + c.label) : null).filter(Boolean));
+  edSections(true, false);
   $('#ed-del').style.visibility = it ? 'visible' : 'hidden';
   $('#ed-save').textContent = 'Save item';
-  $('#ed-err').textContent = '';
   renderEditor();
-  $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
-  setTimeout(() => $('#ed-label').focus(), 50);
+  openDrawer('#ed-label');
+}
+function openCategory(i = null) {
+  const it = i == null ? null : cfg.quick_menu[i];
+  ed = { orig: null, combo: '', menu: { category: true, index: i }, ...parseAction('text:') };
+  $('#ed-title').textContent = it ? 'Edit category' : 'New category';
+  $('#ed-sub').textContent = 'A category opens its own list in the quick menu (X opens, B goes back).';
+  $('#ed-label').value = it ? it.label : '';
+  edSections(true, true);
+  $('#ed-del').style.visibility = it ? 'visible' : 'hidden';
+  $('#ed-save').textContent = it ? 'Save category' : 'Create category';
+  openDrawer('#ed-label');
 }
 async function saveMenuItem() {
+  const prev = JSON.stringify(cfg.quick_menu);
+  const fail = msg => { cfg.quick_menu = JSON.parse(prev); $('#ed-err').textContent = msg; };
+  if (ed.menu.category) {
+    const name = $('#ed-label').value.trim();
+    if (!name) { $('#ed-err').textContent = 'Give the category a name.'; return; }
+    const i = ed.menu.index;
+    if (i == null) cfg.quick_menu.push({ label: name, items: [] }); else cfg.quick_menu[i].label = name;
+    const k = i == null ? cfg.quick_menu.length - 1 : i;
+    const r = await saveNow(); if (r.error) return fail(r.error);
+    qmHot = { parent: k, index: 0 }; closeEditor(); renderQuickMenu(); renderOverview();
+    toast(i == null ? `Created “${name}”. Press + on it to add items.` : 'Category renamed');
+    return;
+  }
   const a = buildAction();
   const chk = await api.check_action(a);
   if (chk.error) { $('#ed-err').textContent = chk.error.replace(/^./, c => c.toUpperCase()); return; }
   if (!MENU_TYPES.includes(ed.kind)) { $('#ed-err').textContent = 'Pick Windows feature, Press keys, Type text or Open program.'; return; }
   const item = { label: $('#ed-label').value.trim() || label(a), action: a };
-  const i = ed.menu.index, prev = JSON.stringify(cfg.quick_menu);
-  if (i == null) cfg.quick_menu.push(item); else cfg.quick_menu[i] = item;
-  const r = await saveNow();
-  if (r.error) { cfg.quick_menu = JSON.parse(prev); $('#ed-err').textContent = r.error; return; }
-  qmHot = i == null ? cfg.quick_menu.length - 1 : i;
+  const { parent, index } = ed.menu, wv = $('#ed-where').value, target = wv === '' ? null : Number(wv);
+  let at;
+  if (index != null && target === parent) { listAt(parent)[index] = item; at = index; }
+  else {
+    if (index != null) listAt(parent).splice(index, 1);
+    const dest = listAt(target);
+    if (target == null) {  // new most-used items go above the categories, not after them
+      at = dest.findIndex(isCat); if (at < 0) at = dest.length;
+      dest.splice(at, 0, item);
+    } else { dest.push(item); at = dest.length - 1; }
+  }
+  const r = await saveNow(); if (r.error) return fail(r.error);
+  qmHot = { parent: target, index: at };
   closeEditor(); renderQuickMenu(); renderOverview();
-  toast(i == null ? `Added “${item.label}”` : 'Menu item saved');
+  toast(index == null ? `Added “${item.label}”` : target !== parent ? `Moved “${item.label}”` : 'Menu item saved');
 }
 function renderOverview() {
   const combos = Object.entries(cfg.map).filter(([c]) => c.includes('+'));
@@ -938,11 +1033,12 @@ function renderOverview() {
       h('div', { class: 'chips' }, chipsFor(c)), h('span', { class: 'arrow' }, '→'), h('b', {}, label(a))))
     : [h('p', { class: 'empty' }, 'No combos yet.')]));
   const opener = Object.entries(cfg.map).filter(([, a]) => a === 'menu').map(([c]) => c);
-  $('#ov-qm-open').replaceChildren(...(opener.length ? ['Opens with ', h('span', { class: 'chips', style: 'display:inline-flex;vertical-align:middle' }, chipsFor(opener[0])), '. D-pad moves, X picks, B closes.']
+  $('#ov-qm-open').replaceChildren(...(opener.length ? ['Opens with ', h('span', { class: 'chips', style: 'display:inline-flex;vertical-align:middle' }, chipsFor(opener[0])), '. X opens a category, B goes back.']
     : ['Not on any button yet.']));
   $('#ov-qm').replaceChildren(...cfg.quick_menu.map((it, i) =>
-    h('div', { class: 'ov-row', onclick: () => { show('qm'); openMenuItem(i); } },
-      h('span', { class: 'n' }, i + 1), h('b', {}, it.label), h('span', { class: 'hint' }, menuHint(it.action)))));
+    h('div', { class: 'ov-row', onclick: () => { show('qm'); isCat(it) ? openCategory(i) : openMenuItem(null, i); } },
+      h('span', { class: 'n' }, isCat(it) ? '▸' : i + 1), h('b', {}, it.label),
+      h('span', { class: 'hint' }, isCat(it) ? `${it.items.length} items ›` : menuHint(it.action)))));
 }
 function refreshAll() { renderCallouts(); renderLists(); renderQuickMenu(); renderOverview(); }
 
@@ -1222,7 +1318,7 @@ function buildAction() {
 function openEditor(combo, fromPad = false) {
   const exists = combo && cfg.map[combo] != null;
   ed = { orig: exists ? combo : null, combo: combo || '', menu: null, ...parseAction(exists ? cfg.map[combo] : null) };
-  $('#ed-label-sec').hidden = true; $('#ed-trigger-sec').hidden = false; $('#ed-save').textContent = 'Save shortcut';
+  edSections(false, false); $('#ed-save').textContent = 'Save shortcut';
   $('#ed-title').textContent = exists ? 'Edit shortcut' : 'New shortcut';
   $('#ed-sub').textContent = exists ? 'Changes save when you press Save.' : fromPad ? `Nothing is set for ${combo} yet.` : 'Pick buttons, then what they should do.';
   $('#ed-del').style.visibility = exists ? 'visible' : 'hidden';
@@ -1334,7 +1430,7 @@ async function saveEditor() {
   toast(replaced ? `Replaced the old ${combo} shortcut` : 'Shortcut saved');
 }
 async function deleteEditor() {
-  if (ed.menu) { const i = ed.menu.index; closeEditor(); return deleteMenuItem(i); }
+  if (ed.menu) { const m = ed.menu; closeEditor(); return deleteMenuItem(m.category ? null : m.parent, m.index); }
   const c = ed.orig, a = cfg.map[c];
   delete cfg.map[c]; await saveNow(); closeEditor(); refreshAll();
   toast(`Deleted ${c} → ${label(a)}`, { action: 'Undo', onAction: async () => { cfg.map[c] = a; await saveNow(); refreshAll(); }, ms: 6000 });
@@ -1349,12 +1445,13 @@ window.addEventListener('pywebviewready', async () => {
   $('#ver').textContent = 'Foxi ' + info.version;
   buildPad(); renderLists(); renderQuickMenu(); renderOverview(); renderCursor(); renderSystem(); buildDiag(); show('controller');
   $$('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
-  $('#qm-add').addEventListener('click', () => openMenuItem(null));
+  $('#qm-add').addEventListener('click', () => openMenuItem(null, null));
+  $('#qm-add-cat').addEventListener('click', () => openCategory(null));
   $('#ed-label').addEventListener('input', () => ed && ed.menu && renderPreview());
   $('#qm-reset').addEventListener('click', async () => {
     const before = JSON.parse(JSON.stringify(cfg.quick_menu));
-    cfg.quick_menu = (await api.defaults()).quick_menu; qmHot = 0; await saveNow(); renderQuickMenu();
-    toast('Quick menu reset to defaults', { action: 'Undo', onAction: async () => { cfg.quick_menu = before; await saveNow(); renderQuickMenu(); }, ms: 6000 });
+    cfg.quick_menu = (await api.defaults()).quick_menu; qmHot = { parent: null, index: 0 }; await saveNow(); renderQuickMenu(); renderOverview();
+    toast('Quick menu reset to defaults', { action: 'Undo', onAction: async () => { cfg.quick_menu = before; await saveNow(); renderQuickMenu(); renderOverview(); }, ms: 6000 });
   });
   $$('.nav').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
   $$('#mode button').forEach(b => b.addEventListener('click', () => { if (S && S.mode !== b.dataset.mode) api.toggle(); }));

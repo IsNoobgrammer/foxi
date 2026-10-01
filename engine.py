@@ -42,21 +42,36 @@ DEFAULT_CONFIG = {
         'UP': 'repeat:up', 'DOWN': 'repeat:down', 'LEFT': 'repeat:left', 'RIGHT': 'repeat:right',
         'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'hold:backspace>ctrl+backspace', 'Y': 'keys:tab',
         'A': 'keys:space', 'B': 'keys:esc',  # B = back/cancel, as on consoles
-        'LS+B': 'keys:win+shift+s',  # left back button (L3) + B: screenshot (B alone stays Esc)
+        'LS+B': 'keys:ctrl+c',       # left back button (L3) + B: copy (B alone stays Esc; paste = right click)
         'LS+Y': 'switcher',          # L3 + Y: Alt+Tab switcher (Y alone is Tab)
         'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu',
     },
     # START opens this list near the cursor: D-pad moves, X picks, B closes. keys: presses, text: types.
     # text: items only type, never press Enter: you check the text, then press Enter (X) yourself
+    # Top level: most-used actions first, then categories ({'label', 'items'}: X opens, B goes back).
     'quick_menu': [
-        {'label': 'Copy', 'action': 'keys:ctrl+c'},
-        {'label': 'Paste', 'action': 'keys:ctrl+v'},
-        {'label': 'Select all', 'action': 'keys:ctrl+a'},
+        {'label': 'Screenshot', 'action': 'keys:win+shift+s'},
         {'label': 'Paste image', 'action': 'keys:alt+v'},
-        {'label': 'Resume a session', 'action': 'text:/resume'},
-        {'label': 'Compact the context', 'action': 'text:/compact'},
-        {'label': 'Goal', 'action': 'text:/goal'},
-        {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
+        {'label': 'Select all', 'action': 'keys:ctrl+a'},
+        {'label': 'Paste', 'action': 'keys:ctrl+v'},
+        {'label': 'Claude Code', 'items': [
+            {'label': 'Resume a session', 'action': 'text:/resume'},
+            {'label': 'Compact the context', 'action': 'text:/compact'},
+            {'label': 'Goal', 'action': 'text:/goal'},
+            {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
+        ]},
+        {'label': 'Windows', 'items': [
+            {'label': 'Clipboard history', 'action': 'keys:win+v'},
+            {'label': 'Emoji & symbols', 'action': 'keys:win+.'},
+            {'label': 'Task view', 'action': 'keys:win+tab'},
+            {'label': 'Show desktop', 'action': 'keys:win+d'},
+        ]},
+        {'label': 'Edit', 'items': [
+            {'label': 'Undo', 'action': 'keys:ctrl+z'},
+            {'label': 'Redo', 'action': 'keys:ctrl+y'},
+            {'label': 'Cut', 'action': 'keys:ctrl+x'},
+            {'label': 'Find', 'action': 'keys:ctrl+f'},
+        ]},
     ],
 }
 
@@ -117,12 +132,22 @@ def validate(raw):
         raise ValueError(f"cursor_pack must be one of {', '.join(CURSOR_PACKS)}")
     if raw['mouse_stick'] not in ('left', 'right', 'both', 'none'):
         raise ValueError('mouse_stick must be left, right, both or none')
-    for i, it in enumerate(raw['quick_menu']):
-        if not isinstance(it, dict) or not str(it.get('label', '')).strip():
-            raise ValueError(f'quick menu item {i + 1} needs a label')
-        if it.get('action', '').partition(':')[0] not in MENU_ACTIONS:
-            raise ValueError(f"quick menu item {i + 1}: use keys:, text: or run:")
-        check_action(it['action'])
+    def check_items(items, where, nested):
+        for i, it in enumerate(items):
+            name = f'{where}item {i + 1}'
+            if not isinstance(it, dict) or not str(it.get('label', '')).strip():
+                raise ValueError(f'quick menu {name} needs a label')
+            if 'items' in it:
+                if nested:
+                    raise ValueError(f'quick menu {name}: categories can only be on the top level')
+                if not isinstance(it['items'], list):
+                    raise ValueError(f'quick menu {name}: items must be a list')
+                check_items(it['items'], f"“{it['label']}” ", True)
+            elif it.get('action', '').partition(':')[0] not in MENU_ACTIONS:
+                raise ValueError(f'quick menu {name}: use keys:, text: or run:')
+            else:
+                check_action(it['action'])
+    check_items(raw['quick_menu'], '', False)
     compiled = {}
     for k, a in raw['map'].items():
         check_action(a)  # validate now, not mid-game
@@ -352,6 +377,7 @@ class Engine:
         self.counts, self.cnt_prev = {}, 0  # diagnostics: presses per button since reset
         self.switch_combo = 0  # buttons of the switcher mapping, to know when it's released
         self.menu_open, self.menu_index, self.menu_combo = False, 0, 0  # quick menu (START by default)
+        self.menu_path = []  # indices of the categories opened, top level = []
         self.on_menu = lambda opened: None  # GUI shows/hides the menu window (set by foxi.py)
         self.step_us, self.loop_ms = 0.0, 1.0  # diagnostics: processing time per tick, loop period (EWMA)
         self.xi = ctypes.WinDLL('xinput1_4')
@@ -391,8 +417,21 @@ class Engine:
         for c in [c for c in self.active if c != combo]:
             stop(self.active.pop(c)[0])  # nothing keeps repeating behind the menu
         self.end_switcher()
-        self.menu_open, self.menu_index, self.menu_combo = True, 0, combo
+        self.menu_open, self.menu_index, self.menu_combo, self.menu_path = True, 0, combo, []
         self.on_menu(True)
+
+    def menu_items(self):
+        """The list shown right now: top level, or the opened category's items."""
+        items = self.cfg['quick_menu']
+        for i in self.menu_path:
+            items = items[i]['items'] if 0 <= i < len(items) and 'items' in items[i] else []
+        return items
+
+    def menu_crumbs(self):
+        items, names = self.cfg['quick_menu'], []
+        for i in self.menu_path:
+            names.append(items[i]['label']); items = items[i]['items']
+        return names
 
     def close_menu(self):
         if self.menu_open:
@@ -400,23 +439,38 @@ class Engine:
             self.on_menu(False)
 
     def menu_pick(self, i):
-        """Hide the menu, then act. The menu window never takes focus, so input lands where you were."""
-        items = self.cfg['quick_menu']
+        """Category: open it. Action: hide the menu, then act. The menu window never takes focus,
+        so input lands where you were."""
+        items = self.menu_items()
+        if not 0 <= i < len(items):
+            return
+        if 'items' in items[i]:
+            self.menu_path.append(i); self.menu_index = 0
+            self.on_menu(True)  # resize to the category's rows
+            return
         self.close_menu()
-        if 0 <= i < len(items):
-            start(items[i]['action'])
-            self.log.append(f"menu -> {items[i]['label']}")
+        start(items[i]['action'])
+        self.log.append(f"menu -> {items[i]['label']}")
+
+    def menu_back(self):
+        if self.menu_path:
+            self.menu_index = self.menu_path.pop()
+            self.on_menu(True)
+        else:
+            self.close_menu()
 
     def menu_step(self, held):
         """While the menu is open the D-pad/X/B drive it instead of their mappings; sticks keep working."""
-        new, n = held & ~self.prev, max(len(self.cfg['quick_menu']), 1)
+        new, n = held & ~self.prev, max(len(self.menu_items()), 1)
         if new & BUTTONS['UP']:
             self.menu_index = (self.menu_index - 1) % n
         if new & BUTTONS['DOWN']:
             self.menu_index = (self.menu_index + 1) % n
-        if new & (BUTTONS['X'] | BUTTONS['A']):
-            self.menu_pick(self.menu_index)
-        elif new & (BUTTONS['B'] | self.menu_combo):
+        if new & (BUTTONS['X'] | BUTTONS['A'] | BUTTONS['RIGHT']):
+            self.menu_pick(self.menu_index)   # opens a category or runs the item
+        elif new & (BUTTONS['B'] | BUTTONS['LEFT']):
+            self.menu_back()                  # up one level, or close at the top
+        elif new & self.menu_combo:
             self.close_menu()
 
     def reload(self):
@@ -586,7 +640,24 @@ def test_menu_press_is_consumed():
             state['b'] = b
             eng.step(time.perf_counter(), 0.001)
             assert eng.menu_open == expect_open, (b, eng.menu_open)
-        assert fired == ['keys:ctrl+c'], fired  # Copy only: no 'keys:enter'
+        assert fired == ['keys:win+shift+s'], fired  # first item only: no 'keys:enter'
+        fired.clear()
+
+        def press(b):
+            state['b'] = b; eng.step(time.perf_counter(), 0.001)
+            state['b'] = 0; eng.step(time.perf_counter(), 0.001)
+        press(BUTTONS['START'])
+        for _ in range(4):
+            press(BUTTONS['DOWN'])                       # past the 4 most-used items, onto 'Claude Code'
+        press(BUTTONS['X'])
+        assert eng.menu_open and eng.menu_crumbs() == ['Claude Code'] and eng.menu_index == 0
+        press(BUTTONS['B'])                              # back to the top, cursor on the category
+        assert eng.menu_open and eng.menu_path == [] and eng.menu_index == 4
+        press(BUTTONS['RIGHT']); press(BUTTONS['DOWN']); press(BUTTONS['X'])   # open, 2nd item: /compact
+        assert not eng.menu_open and fired == ['text:/compact'], fired
+        press(BUTTONS['START']); press(BUTTONS['B'])     # B at the top closes
+        assert not eng.menu_open
+        assert fired == ['text:/compact'], fired
         state['b'] = BUTTONS['X']; eng.step(time.perf_counter(), 0.001)  # menu closed: X is Enter again
         assert fired[-1] == 'keys:enter', fired
     finally:
@@ -630,7 +701,7 @@ def test_hold_and_space_combo():
         assert fired == ['keys:space', 'keys:esc'], fired
         fired.clear()
         tick(LS); tick(LS | B); tick(LS); tick(0)               # L3 held, B tapped
-        assert fired == ['keys:win+shift+s'], fired             # screenshot only, no Esc
+        assert fired == ['keys:ctrl+c'], fired                  # copy only, no Esc
         fired.clear()
         tick(BUTTONS['Y']); tick(0)                              # Y alone = Tab
         tick(LS); tick(LS | BUTTONS['Y']); tick(LS); tick(LS | BUTTONS['Y'])  # L3 held, Y twice = switcher steps
@@ -660,6 +731,8 @@ def test():
         except ValueError: pass
     c = DEFAULT_CONFIG
     validate(c)  # default quick menu items are valid
+    try: validate({**c, 'quick_menu': [{'label': 'a', 'items': [{'label': 'b', 'items': []}]}]}); assert False
+    except ValueError: pass  # no categories inside categories
     for bad in ({**c, 'quick_menu': [{'label': '', 'action': 'text:x'}]},
                 {**c, 'quick_menu': [{'label': 'x', 'action': 'menu'}]},
                 {**c, 'quick_menu': [{'label': 'x', 'action': 'text:'}]}):
