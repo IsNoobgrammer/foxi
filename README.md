@@ -24,10 +24,14 @@ Point, click, scroll, dictate, delete words and switch windows from the couch, t
 |---|---|---|---|
 | Left stick | Cursor | Right stick | Scroll |
 | LT / RT | Left / right click (hold to drag) | D-pad | Arrow keys (repeat when held) |
-| X | Enter | Y | Window switcher (press again to step, stop to switch) |
-| LB | Voice typing (Win+H) | RB | Delete word (Ctrl+Backspace) |
-| A | Screenshot (Win+Shift+S) | Menu | Clipboard history (Win+V) |
-| View | Cycle cursor speed | L3 + R3 | Mouse & keys ⇄ Game |
+| A | Space | B | Tab |
+| X | Enter | Y | Escape |
+| LB | Voice typing (Win+H) | RB | Backspace · hold = delete whole words |
+| View | Cycle cursor speed | Menu | Quick menu (Copy, Paste, Select all, Paste image, /resume, /compact, /goal, …) |
+| L3 + B | Screenshot (Win+Shift+S) | L3 + Y | Window switcher (keep L3 held, tap Y to step) |
+| L3 + R3 | Mouse & keys ⇄ Game | | |
+
+L3 / R3 are the stick clicks; on pads with back buttons (like the EvoFox One S) you can set those to send L3 / R3 and hold them with your middle fingers.
 
 Change any of it in the app: click a button on the controller picture, or press **Record** and hold the buttons you want.
 

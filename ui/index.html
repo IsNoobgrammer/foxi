@@ -209,6 +209,21 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
   padding: 0 10px; font-variant-numeric: tabular-nums; }
 .stack { display: flex; flex-direction: column; gap: 16px; }
 
+/* ---------- controller overview */
+.ov-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 8px; }
+.ov-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.ov-head h2 { margin: 0; }
+.ov-head .btn { height: 30px; padding: 0 10px; }
+.ov-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; margin: 0 -8px; border-radius: var(--r-sm);
+  cursor: pointer; transition: background .15s; min-width: 0; }
+.ov-row:hover { background: var(--s2); }
+.ov-row .chips { flex: none; }
+.ov-row b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-row .n { width: 16px; flex: none; color: var(--tx3); font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.ov-row .hint { margin-left: auto; color: var(--tx3); font: 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.ov-row.lit { background: var(--acc-soft); }
+@media (max-width: 1150px) { .ov-grid { grid-template-columns: 1fr 1fr; } }
+
 /* ---------- quick menu view */
 .qm-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
 .qrow { display: grid; grid-template-columns: 22px 24px 1fr auto auto; align-items: center; gap: 12px; padding: 12px 14px 12px 10px;
@@ -407,7 +422,13 @@ select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(
       <!-- controller -->
       <section class="view active" id="view-controller">
         <div class="pad-wrap"><svg id="pad" viewBox="0 0 1000 470" aria-label="Controller preview"></svg></div>
-        <div class="card" style="margin-top:8px"><h2>Recent</h2><p>What your controller just did.</p><div class="log" id="log"></div></div>
+        <div class="ov-grid">
+          <div class="card"><div class="ov-head"><h2>Combos</h2><button class="btn ghost" data-go="combos">Edit</button></div>
+            <p>Buttons pressed together. Your back buttons send L3 / R3.</p><div id="ov-combos"></div></div>
+          <div class="card"><div class="ov-head"><h2>Quick menu</h2><button class="btn ghost" data-go="qm">Edit</button></div>
+            <p id="ov-qm-open"></p><div id="ov-qm"></div></div>
+          <div class="card"><h2>Recent</h2><p>What your controller just did.</p><div class="log" id="log"></div></div>
+        </div>
       </section>
 
       <!-- shortcuts -->
@@ -576,7 +597,8 @@ const NAMED = {
   'keys:win+shift+s': 'Screenshot', 'keys:win+d': 'Show desktop', 'keys:alt+tab': 'Alt + Tab',
   'keys:play_pause': 'Play / pause', 'keys:next': 'Next track', 'keys:prev': 'Previous track',
   'keys:volume_up': 'Volume up', 'keys:volume_down': 'Volume down', 'keys:mute': 'Mute', 'keys:esc': 'Escape',
-  'menu': 'Quick menu', 'keys:alt+v': 'Paste image', 'keys:ctrl+a': 'Select all',
+  'menu': 'Quick menu', 'keys:alt+v': 'Paste image', 'keys:ctrl+a': 'Select all', 'keys:space': 'Space', 'keys:tab': 'Tab',
+  'hold:backspace>ctrl+backspace': 'Backspace · hold = words',
   'keys:ctrl+c': 'Copy', 'keys:ctrl+v': 'Paste', 'keys:ctrl+z': 'Undo', 'keys:ctrl+w': 'Close tab', 'keys:ctrl+t': 'New tab',
 };
 const WIN_FEATURES = [
@@ -600,10 +622,11 @@ function label(action) {
   const [kind, ...rest] = action.split(':'); const arg = rest.join(':');
   if (kind === 'keys' || kind === 'repeat') return arg.split('+').map(keyNice).join(' + ') + (kind === 'repeat' ? ' ⟳' : '');
   if (kind === 'run') return 'Run ' + arg.split(/[\\/]/).pop();
+  if (kind === 'hold') { const [t, hd] = arg.split('>'); return `${t.split('+').map(keyNice).join(' + ')} · hold ${hd.split('+').map(keyNice).join(' + ')}`; }
   if (kind === 'text') return 'Type “' + (arg.length > 28 ? arg.slice(0, 27) + '…' : arg) + '”';
   return action;
 }
-const KIND_BADGE = { keys: 'Keys', repeat: 'Keys · repeat', mouse: 'Mouse', run: 'Program', text: 'Text', switcher: 'Switcher', toggle: 'Mode', dpi: 'Speed', menu: 'Menu' };
+const KIND_BADGE = { keys: 'Keys', repeat: 'Keys · repeat', hold: 'Tap · hold', mouse: 'Mouse', run: 'Program', text: 'Text', switcher: 'Switcher', toggle: 'Mode', dpi: 'Speed', menu: 'Menu' };
 const kindOf = a => a.split(':')[0];
 const chipsFor = (combo, lit = []) => {
   const parts = combo ? combo.split('+') : [];
@@ -709,8 +732,13 @@ function renderCallouts() {
     const [nameEl, actEl] = $$('text', g);
     const nm = n === 'LS' ? 'L STICK · ' + stickRole(n) : n === 'RS' ? 'R STICK · ' + stickRole(n) : (NICE_BTN[n] && n.length > 2 ? NICE_BTN[n].toUpperCase() : n);
     nameEl.textContent = nm;
-    actEl.textContent = a ? ((n === 'LS' || n === 'RS') ? 'Press: ' + label(a) : label(a)) : ((n === 'LS' || n === 'RS') ? 'Press: nothing' : 'Not set');
-    g.classList.toggle('none', !a);
+    const stick = n === 'LS' || n === 'RS';
+    const combos = Object.entries(cfg.map).filter(([c]) => c.includes('+') && c.split('+').includes(n));
+    const short = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+    const withText = combos.length ? '+' + combos[0][0].split('+').filter(b => b !== n).map(b => NICE_BTN[b] || b).join('+') + ' '
+      + short(label(combos[0][1]), 18) + (combos.length > 1 ? `  +${combos.length - 1} more` : '') : '';
+    actEl.textContent = a ? (stick ? 'Press: ' + label(a) : label(a)) : stick ? (withText || 'Press: nothing') : 'Not set';
+    g.classList.toggle('none', !a && !(stick && combos.length));
   }
 }
 
@@ -745,6 +773,7 @@ function applyState(st) {
     lastLog = lg;
     $('#log').replaceChildren(...(st.log.length ? st.log.slice().reverse().map(l => h('div', {}, l)) : [h('div', { class: 'empty' }, 'Nothing yet. Press a mapped button.')]));
   }
+  $$('.ov-row[data-combo]').forEach(r => r.classList.toggle('lit', r.dataset.combo.split('+').every(b => held.has(b))));
   $$('.row[data-combo]').forEach(r => r.classList.toggle('held', r.dataset.combo.split('+').every(b => held.has(b))));
   if ($('#view-diag').classList.contains('active')) drawTester(st);
   if ($('#view-cursor').classList.contains('active')) drawCurve();
@@ -865,12 +894,12 @@ async function moveItem(from, to) {
   const items = cfg.quick_menu;
   if (to < 0 || to >= items.length || from === to) return;
   items.splice(to, 0, items.splice(from, 1)[0]);
-  qmHot = to; await saveNow(); renderQuickMenu();
+  qmHot = to; await saveNow(); renderQuickMenu(); renderOverview();
 }
 async function deleteMenuItem(i) {
   const it = cfg.quick_menu.splice(i, 1)[0];
   qmHot = Math.min(qmHot, cfg.quick_menu.length - 1);
-  await saveNow(); renderQuickMenu();
+  await saveNow(); renderQuickMenu(); renderOverview();
   toast(`Removed “${it.label}”`, { action: 'Undo', onAction: async () => { cfg.quick_menu.splice(i, 0, it); await saveNow(); renderQuickMenu(); }, ms: 6000 });
 }
 function openMenuItem(i = null) {
@@ -899,10 +928,23 @@ async function saveMenuItem() {
   const r = await saveNow();
   if (r.error) { cfg.quick_menu = JSON.parse(prev); $('#ed-err').textContent = r.error; return; }
   qmHot = i == null ? cfg.quick_menu.length - 1 : i;
-  closeEditor(); renderQuickMenu();
+  closeEditor(); renderQuickMenu(); renderOverview();
   toast(i == null ? `Added “${item.label}”` : 'Menu item saved');
 }
-function refreshAll() { renderCallouts(); renderLists(); renderQuickMenu(); }
+function renderOverview() {
+  const combos = Object.entries(cfg.map).filter(([c]) => c.includes('+'));
+  $('#ov-combos').replaceChildren(...(combos.length ? combos.map(([c, a]) =>
+    h('div', { class: 'ov-row', 'data-combo': c, onclick: () => openEditor(c) },
+      h('div', { class: 'chips' }, chipsFor(c)), h('span', { class: 'arrow' }, '→'), h('b', {}, label(a))))
+    : [h('p', { class: 'empty' }, 'No combos yet.')]));
+  const opener = Object.entries(cfg.map).filter(([, a]) => a === 'menu').map(([c]) => c);
+  $('#ov-qm-open').replaceChildren(...(opener.length ? ['Opens with ', h('span', { class: 'chips', style: 'display:inline-flex;vertical-align:middle' }, chipsFor(opener[0])), '. D-pad moves, X picks, B closes.']
+    : ['Not on any button yet.']));
+  $('#ov-qm').replaceChildren(...cfg.quick_menu.map((it, i) =>
+    h('div', { class: 'ov-row', onclick: () => { show('qm'); openMenuItem(i); } },
+      h('span', { class: 'n' }, i + 1), h('b', {}, it.label), h('span', { class: 'hint' }, menuHint(it.action)))));
+}
+function refreshAll() { renderCallouts(); renderLists(); renderQuickMenu(); renderOverview(); }
 
 // ---------------------------------------------------------------- cursor view
 const FIELDS = {
@@ -912,6 +954,7 @@ const FIELDS = {
   scroll: [['scroll_speed', 'Speed', 1, 30, .5, v => v + ' /s'], ['scroll_curve', 'Curve', 1, 4, .05, v => v.toFixed(2)]],
   timing: [['trigger_threshold', 'Trigger press at', 10, 250, 5, v => Math.round(v / 2.55) + '%'],
     ['repeat_delay_ms', 'Repeat after', 150, 1000, 10, v => v + ' ms'], ['repeat_rate_ms', 'Repeat every', 15, 150, 5, v => v + ' ms'],
+    ['hold_repeat_ms', 'Tap/hold repeat', 60, 600, 10, v => v + ' ms'],
     ['switcher_timeout_ms', 'Switcher wait', 300, 2500, 50, v => v + ' ms']],
 };
 function slider([k, text, min, max, step, fmt]) {
@@ -1133,6 +1176,7 @@ async function renderSystem() {
 const TYPES = [
   ['win', 'Windows feature', 'Clipboard, screenshot, emoji…'],
   ['keys', 'Press keys', 'A key or shortcut, once'], ['repeat', 'Hold to repeat', 'Keeps pressing while held'],
+  ['hold', 'Tap / hold', 'One key on tap, another while held'],
   ['mouse', 'Mouse button', 'Click, hold to drag'], ['run', 'Open program', 'App, file or command'],
   ['switcher', 'Window switcher', 'Alt+Tab, press again to step'], ['dpi', 'Cursor speed', 'Cycle speed presets'],
   ['toggle', 'Mouse ⇄ Game', 'Switch Foxi mode'],
@@ -1157,7 +1201,8 @@ let ed = null, recTimer = null;
 function parseAction(a) {
   const [kind, ...rest] = (a || 'keys:').split(':'); const arg = rest.join(':');
   if (WIN_FEATURES.some(([f]) => f === a)) return { kind: 'win', feature: a, mods: new Set(), key: '', mouse: 'left', run: '' };
-  const st = { kind, mods: new Set(), key: '', mouse: 'left', run: '', text: '', feature: 'keys:win+v' };
+  const st = { kind, mods: new Set(), key: '', mouse: 'left', run: '', text: '', feature: 'keys:win+v', tapk: 'backspace', heldk: 'ctrl+backspace' };
+  if (kind === 'hold') [st.tapk, st.heldk] = arg.split('>');
   if (kind === 'keys' || kind === 'repeat') for (const k of arg.split('+').filter(Boolean)) MODS.includes(k) ? st.mods.add(k) : (st.key = k);
   if (kind === 'mouse') st.mouse = arg || 'left';
   if (kind === 'run') st.run = arg;
@@ -1171,6 +1216,7 @@ function buildAction() {
   if (kind === 'mouse') return 'mouse:' + mouse;
   if (kind === 'run') return 'run:' + run.trim();
   if (kind === 'text') return 'text:' + ed.text;
+  if (kind === 'hold') return `hold:${ed.tapk.trim()}>${ed.heldk.trim()}`;
   return kind;
 }
 function openEditor(combo, fromPad = false) {
@@ -1219,6 +1265,11 @@ function renderEditor() {
     for (const [m, t] of [['left', 'Left'], ['right', 'Right'], ['middle', 'Middle']])
       el.append(h('button', { class: ed.mouse === m ? 'on' : '', onclick: () => { ed.mouse = m; renderEditor(); } }, t));
     v.append(h('div', { class: 'sec-label' }, 'Button'), el, h('p', { class: 'note' }, 'Held for as long as you hold the controller button, so you can drag and select.'));
+  } else if (ed.kind === 'hold') {
+    const mk = (k, ph) => { const i = h('input', { class: 'text mono', value: ed[k], placeholder: ph }); i.addEventListener('input', () => { ed[k] = i.value.toLowerCase(); renderPreview(); }); return i; };
+    v.append(h('div', { class: 'sec-label' }, 'On each tap'), mk('tapk', 'backspace'),
+      h('div', { class: 'sec-label', style: 'margin-top:14px' }, 'While held'), mk('heldk', 'ctrl+backspace'),
+      h('p', { class: 'note' }, 'Key names joined with +, e.g. ctrl+backspace. Held keys start after “Repeat after” and repeat at “Tap/hold repeat” (Cursor & scroll → Timing).'));
   } else if (ed.kind === 'text') {
     const inp = h('input', { class: 'text', value: ed.text, placeholder: 'e.g. /compact  or  thanks, looks good!' });
     inp.addEventListener('input', () => { ed.text = inp.value; renderPreview(); });
@@ -1296,7 +1347,8 @@ window.addEventListener('pywebviewready', async () => {
   api = window.pywebview.api;
   [info, cfg, previews] = await Promise.all([api.info(), api.config(), api.cursor_previews()]);
   $('#ver').textContent = 'Foxi ' + info.version;
-  buildPad(); renderLists(); renderQuickMenu(); renderCursor(); renderSystem(); buildDiag(); show('controller');
+  buildPad(); renderLists(); renderQuickMenu(); renderOverview(); renderCursor(); renderSystem(); buildDiag(); show('controller');
+  $$('[data-go]').forEach(b => b.addEventListener('click', () => show(b.dataset.go)));
   $('#qm-add').addEventListener('click', () => openMenuItem(null));
   $('#ed-label').addEventListener('input', () => ed && ed.menu && renderPreview());
   $('#qm-reset').addEventListener('click', async () => {

@@ -22,7 +22,9 @@ VK = {'ctrl': 0x11, 'shift': 0x10, 'alt': 0x12, 'win': 0x5B, 'menu': 0x5D, 'tab'
       **{c: ord(c.upper()) for c in 'abcdefghijklmnopqrstuvwxyz0123456789'}}
 EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2C, 0x2D, 0x2E, 0x5B, 0x5D}
 MOUSE = {'left': (0x2, 0x4), 'right': (0x8, 0x10), 'middle': (0x20, 0x40)}  # (down, up) flags
-ACTIONS = ('keys', 'repeat', 'mouse', 'run', 'text', 'switcher', 'toggle', 'dpi', 'menu')
+ACTIONS = ('keys', 'repeat', 'hold', 'mouse', 'run', 'text', 'switcher', 'toggle', 'dpi', 'menu')
+# hold:TAP>HELD  e.g. hold:backspace>ctrl+backspace: each tap presses TAP; held past repeat_delay_ms it
+# switches to repeating HELD every hold_repeat_ms (slower than letters: whole words go)
 MENU_ACTIONS = ('keys', 'text', 'run')  # what a quick-menu item may do
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW: no console flash from the windowed exe
 
@@ -34,11 +36,15 @@ DEFAULT_CONFIG = {
     'mouse_boost': 2.5, 'mouse_boost_ramp_ms': 600,  # full tilt held: speed ramps 1x -> boost over ramp
     'dpi_levels': [400, 700, 1200],  # dpi action cycles these cursor speeds (px/s at full tilt)
     'trigger_threshold': 60, 'repeat_delay_ms': 400, 'repeat_rate_ms': 40, 'switcher_timeout_ms': 1000,
+    'hold_repeat_ms': 160,
     'map': {
         'LT': 'mouse:left', 'RT': 'mouse:right',
         'UP': 'repeat:up', 'DOWN': 'repeat:down', 'LEFT': 'repeat:left', 'RIGHT': 'repeat:right',
-        'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'repeat:ctrl+backspace', 'Y': 'switcher',
-        'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu', 'A': 'keys:win+shift+s',
+        'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'hold:backspace>ctrl+backspace', 'Y': 'keys:esc',
+        'A': 'keys:space', 'B': 'keys:tab',
+        'LS+B': 'keys:win+shift+s',  # left back button (L3) + B: screenshot (B alone stays Tab)
+        'LS+Y': 'switcher',          # L3 + Y: Alt+Tab switcher (Y alone is Esc)
+        'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu',
     },
     # START opens this list near the cursor: D-pad moves, X picks, B closes. keys: presses, text: types.
     # text: items only type, never press Enter: you check the text, then press Enter (X) yourself
@@ -89,6 +95,11 @@ def check_action(a):
         raise ValueError(f'unknown mouse button in {a!r}; use left, right or middle')
     elif kind == 'run' and not arg.strip():
         raise ValueError('run: needs a command')
+    elif kind == 'hold':
+        tap_keys, sep, held_keys = arg.partition('>')
+        if not sep:
+            raise ValueError(f'{a!r}: use hold:TAP>HELD, e.g. hold:backspace>ctrl+backspace')
+        parse_keys(tap_keys); parse_keys(held_keys)
     elif kind == 'text' and not arg:
         raise ValueError('text: needs something to type')
 
@@ -231,6 +242,8 @@ def start(action):
     kind, _, arg = action.partition(':')
     if kind in ('keys', 'repeat'):
         tap(arg)
+    elif kind == 'hold':
+        tap(arg.partition('>')[0])
     elif kind == 'text':
         type_text(arg)
     elif kind == 'mouse':
@@ -474,7 +487,7 @@ class Engine:
             else:
                 start(action)
                 self.log.append(f'{combo_name(combo)} -> {action}')
-            rep = action.startswith('repeat:')
+            rep = action.startswith(('repeat:', 'hold:'))
             self.active[combo] = [action, now + cfg['repeat_delay_ms'] / 1000 if rep else math.inf]
 
         if self.switch_until and now > self.switch_until and not held & self.switch_combo:
@@ -482,8 +495,13 @@ class Engine:
 
         for a in self.active.values():
             if now >= a[1]:
-                tap(a[0].partition(':')[2])
-                a[1] = now + cfg['repeat_rate_ms'] / 1000
+                kind, _, arg = a[0].partition(':')
+                if kind == 'hold':  # held past the delay: switch to the HELD keys, at the slower rate
+                    tap(arg.partition('>')[2])
+                    a[1] = now + cfg['hold_repeat_ms'] / 1000
+                else:
+                    tap(arg)
+                    a[1] = now + cfg['repeat_rate_ms'] / 1000
 
         if self.mode == 'on':
             acc = self.acc
@@ -575,8 +593,56 @@ def test_menu_press_is_consumed():
         g.update(saved)
 
 
+def test_hold_and_space_combo():
+    """RB tap = Backspace, held = Ctrl+Backspace repeating; A = Space, B = Tab, L3 + B = screenshot only."""
+    import tempfile
+    g = globals()
+    saved = {k: g[k] for k in ('start', 'tap', 'key', 'cloak', 'set_cursor_pack', 'hidhide_sync')}
+    fired = []
+    g.update(start=fired.append, tap=lambda s: fired.append('tap:' + s), key=lambda *a: None,
+             cloak=lambda on: None, set_cursor_pack=lambda p: None, hidhide_sync=lambda: None)
+    try:
+        eng = Engine(os.path.join(tempfile.mkdtemp(), 'foxi.json'))
+        eng.reload(); eng.buzz = lambda n: None
+        state = {'b': 0}
+
+        def fake_get(_, ref):
+            ref._obj.pad.wButtons = state['b']
+            return 0
+        eng.get_state = fake_get
+        t = [100.0]
+
+        def tick(b, dt=0.01):
+            state['b'] = b; t[0] += dt; eng.step(t[0], dt)
+        RB, LS, B = BUTTONS['RB'], BUTTONS['LS'], BUTTONS['B']
+        tick(RB); tick(0); tick(RB); tick(0)                    # two quick taps
+        assert fired == ['hold:backspace>ctrl+backspace'] * 2, fired
+        fired.clear()
+        tick(RB)
+        for _ in range(39):                                     # held 0.4 s: still just the first Backspace
+            tick(RB)
+        assert fired == ['hold:backspace>ctrl+backspace'], fired
+        for _ in range(40):                                     # then words go, every 160 ms
+            tick(RB)
+        assert fired[1:] == ['tap:ctrl+backspace'] * 3, fired
+        tick(0); fired.clear()
+        tick(BUTTONS['A']); tick(0); tick(B); tick(0)           # A, then B
+        assert fired == ['keys:space', 'keys:tab'], fired
+        fired.clear()
+        tick(LS); tick(LS | B); tick(LS); tick(0)               # L3 held, B tapped
+        assert fired == ['keys:win+shift+s'], fired             # screenshot only, no Tab
+        fired.clear()
+        tick(BUTTONS['Y']); tick(0)                              # Y alone = Esc
+        tick(LS); tick(LS | BUTTONS['Y']); tick(LS); tick(LS | BUTTONS['Y'])  # L3 held, Y twice = switcher steps
+        assert fired == ['keys:esc', 'tap:tab', 'tap:tab'], fired
+        assert eng.switch_until, 'switcher stays open while L3 is held'
+    finally:
+        g.update(saved)
+
+
 def test():
     test_menu_press_is_consumed()
+    test_hold_and_space_combo()
     mp = {parse_combo(k): k for k in ['UP', 'X', 'UP+X', 'LT', 'LB+RB']}
     U, X, LT, LB, RB = (BUTTONS[k] for k in ['UP', 'X', 'LT', 'LB', 'RB'])
     assert mp[pick(U, U, mp)] == 'UP'
