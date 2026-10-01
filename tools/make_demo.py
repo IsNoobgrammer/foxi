@@ -11,8 +11,10 @@ u = ctypes.windll.user32
 def main():
     p = subprocess.Popen([sys.executable, os.path.join(ROOT, 'foxi.py')], cwd=ROOT)
     h = 0
+    sys.path.insert(0, ROOT)
+    from foxi import own_window  # by process, never by title: FindWindow would also match a 'foxi' terminal
     for _ in range(80):
-        h = u.FindWindowW(None, 'Foxi')
+        h = own_window('Foxi', p.pid)
         if h:
             break
         time.sleep(0.25)

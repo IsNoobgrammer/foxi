@@ -22,7 +22,8 @@ VK = {'ctrl': 0x11, 'shift': 0x10, 'alt': 0x12, 'win': 0x5B, 'menu': 0x5D, 'tab'
       **{c: ord(c.upper()) for c in 'abcdefghijklmnopqrstuvwxyz0123456789'}}
 EXTENDED = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2C, 0x2D, 0x2E, 0x5B, 0x5D}
 MOUSE = {'left': (0x2, 0x4), 'right': (0x8, 0x10), 'middle': (0x20, 0x40)}  # (down, up) flags
-ACTIONS = ('keys', 'repeat', 'mouse', 'run', 'switcher', 'toggle', 'dpi')
+ACTIONS = ('keys', 'repeat', 'mouse', 'run', 'text', 'switcher', 'toggle', 'dpi', 'menu')
+MENU_ACTIONS = ('keys', 'text', 'run')  # what a quick-menu item may do
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW: no console flash from the windowed exe
 
 DEFAULT_CONFIG = {
@@ -37,8 +38,17 @@ DEFAULT_CONFIG = {
         'LT': 'mouse:left', 'RT': 'mouse:right',
         'UP': 'repeat:up', 'DOWN': 'repeat:down', 'LEFT': 'repeat:left', 'RIGHT': 'repeat:right',
         'X': 'keys:enter', 'LB': 'keys:win+h', 'RB': 'repeat:ctrl+backspace', 'Y': 'switcher',
-        'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'keys:win+v', 'A': 'keys:win+shift+s',
+        'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu', 'A': 'keys:win+shift+s',
     },
+    # START opens this list near the cursor: D-pad moves, X picks, B closes. keys: presses, text: types.
+    'quick_menu': [
+        {'label': 'Select all', 'action': 'keys:ctrl+a'},
+        {'label': 'Paste', 'action': 'keys:ctrl+v'},
+        {'label': 'Paste image', 'action': 'keys:alt+v'},
+        {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
+        {'label': 'Resume a session', 'action': 'text:/resume'},
+        {'label': 'Compact the context', 'action': 'text:/compact'},
+    ],
 }
 
 user32 = ctypes.windll.user32
@@ -76,6 +86,8 @@ def check_action(a):
         raise ValueError(f'unknown mouse button in {a!r}; use left, right or middle')
     elif kind == 'run' and not arg.strip():
         raise ValueError('run: needs a command')
+    elif kind == 'text' and not arg:
+        raise ValueError('text: needs something to type')
 
 
 def load_config(path):
@@ -91,6 +103,12 @@ def validate(raw):
         raise ValueError(f"cursor_pack must be one of {', '.join(CURSOR_PACKS)}")
     if raw['mouse_stick'] not in ('left', 'right', 'both', 'none'):
         raise ValueError('mouse_stick must be left, right, both or none')
+    for i, it in enumerate(raw['quick_menu']):
+        if not isinstance(it, dict) or not str(it.get('label', '')).strip():
+            raise ValueError(f'quick menu item {i + 1} needs a label')
+        if it.get('action', '').partition(':')[0] not in MENU_ACTIONS:
+            raise ValueError(f"quick menu item {i + 1}: use keys:, text: or run:")
+        check_action(it['action'])
     compiled = {}
     for k, a in raw['map'].items():
         check_action(a)  # validate now, not mid-game
@@ -185,10 +203,33 @@ def tap(spec):
         key(c, True)
 
 
+class KEYBDINPUT(Structure):
+    _fields_ = [('wVk', c_ushort), ('wScan', c_ushort), ('dwFlags', c_uint), ('time', c_uint),
+                ('dwExtraInfo', ctypes.c_size_t)]
+
+
+class INPUT(Structure):  # type + union; MOUSEINPUT is the biggest member, hence the padding
+    _fields_ = [('type', c_uint), ('ki', KEYBDINPUT), ('_pad', c_ubyte * 8)]
+
+
+def type_text(s):
+    """Types any text into the focused window (KEYEVENTF_UNICODE), independent of keyboard layout."""
+    units = s.encode('utf-16-le')
+    seq = (INPUT * (len(units)))()
+    for i in range(0, len(units), 2):
+        cu = units[i] | units[i + 1] << 8
+        for j, up in ((i, 0), (i + 1, 2)):  # down, then up (KEYEVENTF_KEYUP)
+            seq[j].type = 1  # INPUT_KEYBOARD
+            seq[j].ki = KEYBDINPUT(0, cu, 0x4 | up, 0, 0)
+    user32.SendInput(len(seq), seq, ctypes.sizeof(INPUT))
+
+
 def start(action):
     kind, _, arg = action.partition(':')
     if kind in ('keys', 'repeat'):
         tap(arg)
+    elif kind == 'text':
+        type_text(arg)
     elif kind == 'mouse':
         user32.mouse_event(MOUSE[arg][0], 0, 0, 0, 0)
     elif kind == 'run':
@@ -294,6 +335,8 @@ class Engine:
         self.rec_peak = 0  # buttons seen while paused (combo recording)
         self.counts, self.cnt_prev = {}, 0  # diagnostics: presses per button since reset
         self.switch_combo = 0  # buttons of the switcher mapping, to know when it's released
+        self.menu_open, self.menu_index, self.menu_combo = False, 0, 0  # quick menu (START by default)
+        self.on_menu = lambda opened: None  # GUI shows/hides the menu window (set by foxi.py)
         self.step_us, self.loop_ms = 0.0, 1.0  # diagnostics: processing time per tick, loop period (EWMA)
         self.xi = ctypes.WinDLL('xinput1_4')
         self.get_state = self.xi[100]  # XInputGetStateEx (undocumented ordinal): like GetState but reports HOME
@@ -327,6 +370,38 @@ class Engine:
         self.apply_cursors()
         self.log.append('mode ON (mouse + keyboard)' if m == 'on' else 'mode GAME (normal controller)')
         self.buzz(2 if m == 'on' else 3)
+
+    def open_menu(self, combo):
+        for c in [c for c in self.active if c != combo]:
+            stop(self.active.pop(c)[0])  # nothing keeps repeating behind the menu
+        self.end_switcher()
+        self.menu_open, self.menu_index, self.menu_combo = True, 0, combo
+        self.on_menu(True)
+
+    def close_menu(self):
+        if self.menu_open:
+            self.menu_open = False
+            self.on_menu(False)
+
+    def menu_pick(self, i):
+        """Hide the menu, then act. The menu window never takes focus, so input lands where you were."""
+        items = self.cfg['quick_menu']
+        self.close_menu()
+        if 0 <= i < len(items):
+            start(items[i]['action'])
+            self.log.append(f"menu -> {items[i]['label']}")
+
+    def menu_step(self, held):
+        """While the menu is open the D-pad/X/B drive it instead of their mappings; sticks keep working."""
+        new, n = held & ~self.prev, max(len(self.cfg['quick_menu']), 1)
+        if new & BUTTONS['UP']:
+            self.menu_index = (self.menu_index - 1) % n
+        if new & BUTTONS['DOWN']:
+            self.menu_index = (self.menu_index + 1) % n
+        if new & (BUTTONS['X'] | BUTTONS['A']):
+            self.menu_pick(self.menu_index)
+        elif new & (BUTTONS['B'] | self.menu_combo):
+            self.close_menu()
 
     def reload(self):
         m = os.path.getmtime(self.cfg_path)
@@ -363,7 +438,11 @@ class Engine:
         for combo in [c for c in self.active if c & ~held]:  # any button of the combo let go
             stop(self.active.pop(combo)[0])
 
-        for bit in BUTTONS.values():
+        if self.menu_open and self.mode != 'on':
+            self.close_menu()
+        if self.menu_open:
+            self.menu_step(held)
+        for bit in BUTTONS.values() if not self.menu_open else ():
             if not held & bit & ~self.prev:
                 continue
             combo = pick(bit, held, self.map)
@@ -380,6 +459,8 @@ class Engine:
                 self.dpi = levels[i]
                 self.log.append(f'cursor speed {self.dpi} px/s')
                 self.buzz(i + 1)  # 1 buzz = slowest level
+            elif action == 'menu':
+                self.open_menu(combo)
             elif action == 'switcher':
                 if not self.switch_until:
                     key(VK['alt'], False)  # hold Alt: first Tab opens the switcher
@@ -456,6 +537,7 @@ class Engine:
             self.error = f'Engine stopped: {sys.exc_info()[1]!r} (details in foxi.log)'
         finally:
             self.release_all()  # never leave a mouse button or Alt stuck down
+            self.close_menu()
             cloak(False)        # hand the controller back to Windows
             set_cursor_pack('windows')
 
@@ -477,6 +559,13 @@ def test():
         try: check_action(bad); assert False, bad
         except ValueError: pass
     c = DEFAULT_CONFIG
+    validate(c)  # default quick menu items are valid
+    for bad in ({**c, 'quick_menu': [{'label': '', 'action': 'text:x'}]},
+                {**c, 'quick_menu': [{'label': 'x', 'action': 'menu'}]},
+                {**c, 'quick_menu': [{'label': 'x', 'action': 'text:'}]}):
+        try: validate(bad); assert False, bad
+        except ValueError: pass
+    assert ctypes.sizeof(INPUT) == 40  # SendInput rejects a wrong struct size silently
     L, R, Z = (20000, 0), (0, -20000), (0, 0)
     both = {**c, 'mouse_stick': 'both'}
     assert route(L, Z, both) == (L, None) and route(Z, R, both) == (R, None)  # either stick = cursor

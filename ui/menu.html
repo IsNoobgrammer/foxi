@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Foxi menu</title>
+<style>
+:root {
+  color-scheme: dark;
+  --bg: oklch(19% 0.009 50); --s2: oklch(24% 0.010 50); --s3: oklch(29% 0.012 50);
+  --line: oklch(100% 0 0 / 0.08); --line-2: oklch(100% 0 0 / 0.14);
+  --tx: oklch(95% 0.006 70); --tx2: oklch(76% 0.010 60); --tx3: oklch(59% 0.012 55);
+  --acc: oklch(71% 0.165 48); --acc-soft: oklch(71% 0.165 48 / 0.16); --on-acc: oklch(20% 0.03 45);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--tx); font: 400 14px/1.4 var(--font);
+  overflow: hidden; user-select: none; cursor: default; }
+.wrap { display: flex; flex-direction: column; height: 100%; border: 1px solid var(--line-2); }
+header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; font-weight: 650; }
+header svg { width: 18px; height: 18px; }
+header .chip { margin-left: auto; font: 600 11px var(--font); color: var(--tx3); }
+ul { list-style: none; margin: 0; padding: 0 6px; flex: 1; }
+li { display: flex; align-items: center; gap: 10px; height: 46px; padding: 0 10px; border-radius: 8px;
+  transition: background .08s; }
+li .n { width: 18px; color: var(--tx3); font-variant-numeric: tabular-nums; font-size: 12px; }
+li b { font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+li .hint { font: 12px var(--mono); color: var(--tx3); white-space: nowrap; max-width: 46%; overflow: hidden; text-overflow: ellipsis; }
+li .k { display: inline-block; padding: 1px 6px; border-radius: 5px; background: var(--s3); border: 1px solid var(--line-2);
+  font: 600 11px var(--font); color: var(--tx2); margin-left: 3px; }
+li.on { background: var(--acc); }
+li.on .n, li.on b, li.on .hint { color: var(--on-acc); }
+li.on .k { background: oklch(100% 0 0 / .25); border-color: transparent; color: var(--on-acc); }
+li:hover:not(.on) { background: var(--s2); }
+footer { padding: 8px 14px 12px; color: var(--tx3); font-size: 12px; border-top: 1px solid var(--line); }
+footer b { color: var(--tx2); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M5 5 L12 11 H20 L27 5 L26 17 L16 28 L6 17 Z" fill="oklch(71% 0.165 48)"/>
+      <path d="M10 18 L16 24 L22 18 L16 20 Z" fill="oklch(93% 0.02 70)"/></svg>
+    Quick menu <span class="chip">Foxi</span>
+  </header>
+  <ul id="list"></ul>
+  <footer><b>D-pad</b> move · <b>X</b> select · <b>B</b> close</footer>
+</div>
+<script>
+'use strict';
+const NICE = { ctrl: 'Ctrl', shift: 'Shift', alt: 'Alt', win: 'Win', enter: 'Enter', esc: 'Esc', tab: 'Tab', space: 'Space',
+  backspace: 'Backspace', delete: 'Del', up: '↑', down: '↓', left: '←', right: '→' };
+const keyNice = k => NICE[k] || k.toUpperCase();
+let last = '';
+function hint(action) {
+  const [kind, ...rest] = action.split(':'); const arg = rest.join(':');
+  const span = document.createElement('span'); span.className = 'hint';
+  if (kind === 'keys') arg.split('+').forEach(k => { const c = document.createElement('span'); c.className = 'k'; c.textContent = keyNice(k); span.append(c); });
+  else span.textContent = kind === 'text' ? arg : 'opens ' + arg.split(/[\\/]/).pop();
+  return span;
+}
+function render(st) {
+  const key = JSON.stringify([st.items, st.index]);
+  if (key === last) return;
+  last = key;
+  const list = document.getElementById('list');
+  list.replaceChildren(...st.items.map((it, i) => {
+    const li = document.createElement('li');
+    li.className = i === st.index ? 'on' : '';
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = i + 1;
+    const b = document.createElement('b'); b.textContent = it.label;
+    li.append(n, b, hint(it.action));
+    li.addEventListener('click', () => window.pywebview.api.menu_pick(i));
+    return li;
+  }));
+}
+async function poll() {
+  try { render(await window.pywebview.api.menu_state()); } catch (e) { /* window still starting */ }
+  setTimeout(poll, 30);
+}
+window.addEventListener('pywebviewready', poll);
+</script>
+</body>
+</html>

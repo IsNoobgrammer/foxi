@@ -10,3 +10,4 @@ __pycache__/
 foxi.json
 tools/uv.exe
 vendor/hidhide/*.exe
+CLAUDE.md

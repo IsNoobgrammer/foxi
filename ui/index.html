@@ -289,6 +289,11 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
 .type span { color: var(--tx3); font-size: 12px; line-height: 1.35; display: block; margin-top: 2px; }
 .type.on { border-color: var(--acc); background: var(--acc-soft); }
 .mods { display: flex; gap: 8px; margin-bottom: 10px; }
+.qm-row { display: grid; grid-template-columns: 28px 1.1fr 110px 1.6fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.qm-row .n { color: var(--tx3); text-align: right; font-variant-numeric: tabular-nums; }
+.qm-row .tools { display: flex; gap: 2px; }
+.qm-row .tools button { width: 30px; height: 30px; border: 0; border-radius: 6px; background: none; color: var(--tx3); }
+.qm-row .tools button:hover { background: var(--s3); color: var(--tx); }
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .feat { border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--s2); padding: 8px 10px; text-align: left;
   transition: border-color .15s, background .15s; }
@@ -384,6 +389,15 @@ select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(
           <button class="btn primary" id="add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add shortcut</button>
         </div>
         <div id="lists"></div>
+        <div class="group-label">Quick menu</div>
+        <div class="card">
+          <h2>Quick menu</h2>
+          <p>A list that pops up next to the cursor (Menu button by default). D-pad moves, <b>X</b> picks, <b>B</b> closes.
+            <b>Keys</b> are pressed, <b>Text</b> is typed into the box you were in.</p>
+          <div id="qm"></div>
+          <div class="row2"><button class="btn" id="qm-add"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add item</button>
+            <span class="err" id="qm-err"></span></div>
+        </div>
       </section>
 
       <!-- combos -->
@@ -522,6 +536,7 @@ const NAMED = {
   'keys:win+shift+s': 'Screenshot', 'keys:win+d': 'Show desktop', 'keys:alt+tab': 'Alt + Tab',
   'keys:play_pause': 'Play / pause', 'keys:next': 'Next track', 'keys:prev': 'Previous track',
   'keys:volume_up': 'Volume up', 'keys:volume_down': 'Volume down', 'keys:mute': 'Mute', 'keys:esc': 'Escape',
+  'menu': 'Quick menu', 'keys:alt+v': 'Paste image', 'keys:ctrl+a': 'Select all',
   'keys:ctrl+c': 'Copy', 'keys:ctrl+v': 'Paste', 'keys:ctrl+z': 'Undo', 'keys:ctrl+w': 'Close tab', 'keys:ctrl+t': 'New tab',
 };
 const WIN_FEATURES = [
@@ -545,9 +560,10 @@ function label(action) {
   const [kind, ...rest] = action.split(':'); const arg = rest.join(':');
   if (kind === 'keys' || kind === 'repeat') return arg.split('+').map(keyNice).join(' + ') + (kind === 'repeat' ? ' ⟳' : '');
   if (kind === 'run') return 'Run ' + arg.split(/[\\/]/).pop();
+  if (kind === 'text') return 'Type “' + (arg.length > 28 ? arg.slice(0, 27) + '…' : arg) + '”';
   return action;
 }
-const KIND_BADGE = { keys: 'Keys', repeat: 'Keys · repeat', mouse: 'Mouse', run: 'Program', switcher: 'Switcher', toggle: 'Mode', dpi: 'Speed' };
+const KIND_BADGE = { keys: 'Keys', repeat: 'Keys · repeat', mouse: 'Mouse', run: 'Program', text: 'Text', switcher: 'Switcher', toggle: 'Mode', dpi: 'Speed', menu: 'Menu' };
 const kindOf = a => a.split(':')[0];
 const chipsFor = (combo, lit = []) => {
   const parts = combo ? combo.split('+') : [];
@@ -742,13 +758,40 @@ function renderLists() {
     h('div', { class: 'row', 'data-combo': c, tabindex: 0, onclick: () => openEditor(c), onkeydown: e => e.key === 'Enter' && openEditor(c) },
       h('div', { class: 'chips' }, chipsFor(c)), h('span', { class: 'arrow' }, '→'),
       h('div', { class: 'act' }, h('b', {}, label(a)), h('span', { class: 'mono' }, a)),
-      h('span', { class: 'badge' + (['toggle', 'dpi', 'switcher'].includes(kindOf(a)) ? ' acc' : '') }, KIND_BADGE[kindOf(a)] || kindOf(a)))));
+      h('span', { class: 'badge' + (['toggle', 'dpi', 'switcher', 'menu'].includes(kindOf(a)) ? ' acc' : '') }, KIND_BADGE[kindOf(a)] || kindOf(a)))));
   $('#lists').replaceChildren(h('div', { class: 'group-label' }, `Buttons · ${single.length}`),
     single.length ? list(single) : h('p', { class: 'empty' }, 'No single-button shortcuts.'));
   $('#combo-list').replaceChildren(h('div', { class: 'group-label' }, `Combos · ${combos.length}`),
     combos.length ? list(combos) : h('p', { class: 'empty' }, 'No combos yet. Press Add combo, then Record and hold the buttons together.'));
 }
-function refreshAll() { renderCallouts(); renderLists(); }
+function renderQuickMenu() {
+  const items = cfg.quick_menu;
+  const commit = async () => {
+    const bad = items.findIndex(it => !it.label.trim());
+    if (bad >= 0) { $('#qm-err').textContent = `Item ${bad + 1} needs a label.`; return; }
+    for (const [i, it] of items.entries()) {
+      const r = await api.check_action(it.action);
+      if (r.error) { $('#qm-err').textContent = `Item ${i + 1}: ${r.error}`; return; }
+    }
+    $('#qm-err').textContent = ''; saveSoon();
+  };
+  $('#qm').replaceChildren(...items.map((it, i) => {
+    const [kind, ...rest] = it.action.split(':');
+    const lab = h('input', { class: 'text', value: it.label, 'aria-label': 'Label ' + (i + 1) });
+    const typ = h('select', { 'aria-label': 'Kind ' + (i + 1) }, [['keys', 'Keys'], ['text', 'Text'], ['run', 'Program']].map(([v, t]) =>
+      h('option', { value: v, selected: v === kind }, t)));
+    const val = h('input', { class: 'text mono', value: rest.join(':'), 'aria-label': 'Value ' + (i + 1),
+      placeholder: kind === 'keys' ? 'ctrl+v' : kind === 'text' ? '/compact' : 'notepad.exe' });
+    const sync = () => { it.label = lab.value; it.action = typ.value + ':' + val.value; commit(); };
+    lab.addEventListener('change', sync); typ.addEventListener('change', () => { sync(); renderQuickMenu(); }); val.addEventListener('change', sync);
+    const move = d => { const j = i + d; if (j < 0 || j >= items.length) return; [items[i], items[j]] = [items[j], items[i]]; renderQuickMenu(); commit(); };
+    return h('div', { class: 'qm-row' }, h('span', { class: 'n' }, i + 1), lab, typ, val, h('div', { class: 'tools' },
+      h('button', { title: 'Move up', 'aria-label': 'Move up', onclick: () => move(-1) }, '↑'),
+      h('button', { title: 'Move down', 'aria-label': 'Move down', onclick: () => move(1) }, '↓'),
+      h('button', { title: 'Remove', 'aria-label': 'Remove', onclick: () => { items.splice(i, 1); renderQuickMenu(); commit(); } }, '✕')));
+  }));
+}
+function refreshAll() { renderCallouts(); renderLists(); renderQuickMenu(); }
 
 // ---------------------------------------------------------------- cursor view
 const FIELDS = {
@@ -982,6 +1025,7 @@ const TYPES = [
   ['mouse', 'Mouse button', 'Click, hold to drag'], ['run', 'Open program', 'App, file or command'],
   ['switcher', 'Window switcher', 'Alt+Tab, press again to step'], ['dpi', 'Cursor speed', 'Cycle speed presets'],
   ['toggle', 'Mouse ⇄ Game', 'Switch Foxi mode'],
+  ['text', 'Type text', 'Types words into the focused box'], ['menu', 'Quick menu', 'Opens your quick menu list'],
 ];
 const MODS = ['ctrl', 'shift', 'alt', 'win'];
 const SPECIAL = ['volume_up', 'volume_down', 'mute', 'play_pause', 'next', 'prev', 'stop', 'printscreen', 'menu', 'esc', 'enter', 'tab', 'space', 'backspace', 'delete'];
@@ -1002,10 +1046,11 @@ let ed = null, recTimer = null;
 function parseAction(a) {
   const [kind, ...rest] = (a || 'keys:').split(':'); const arg = rest.join(':');
   if (WIN_FEATURES.some(([f]) => f === a)) return { kind: 'win', feature: a, mods: new Set(), key: '', mouse: 'left', run: '' };
-  const st = { kind, mods: new Set(), key: '', mouse: 'left', run: '', feature: 'keys:win+v' };
+  const st = { kind, mods: new Set(), key: '', mouse: 'left', run: '', text: '', feature: 'keys:win+v' };
   if (kind === 'keys' || kind === 'repeat') for (const k of arg.split('+').filter(Boolean)) MODS.includes(k) ? st.mods.add(k) : (st.key = k);
   if (kind === 'mouse') st.mouse = arg || 'left';
   if (kind === 'run') st.run = arg;
+  if (kind === 'text') st.text = arg;
   return st;
 }
 function buildAction() {
@@ -1014,6 +1059,7 @@ function buildAction() {
   if (kind === 'keys' || kind === 'repeat') return kind + ':' + [...MODS.filter(m => mods.has(m)), key].filter(Boolean).join('+');
   if (kind === 'mouse') return 'mouse:' + mouse;
   if (kind === 'run') return 'run:' + run.trim();
+  if (kind === 'text') return 'text:' + ed.text;
   return kind;
 }
 function openEditor(combo, fromPad = false) {
@@ -1061,6 +1107,10 @@ function renderEditor() {
     for (const [m, t] of [['left', 'Left'], ['right', 'Right'], ['middle', 'Middle']])
       el.append(h('button', { class: ed.mouse === m ? 'on' : '', onclick: () => { ed.mouse = m; renderEditor(); } }, t));
     v.append(h('div', { class: 'sec-label' }, 'Button'), el, h('p', { class: 'note' }, 'Held for as long as you hold the controller button, so you can drag and select.'));
+  } else if (ed.kind === 'text') {
+    const inp = h('input', { class: 'text', value: ed.text, placeholder: 'e.g. /compact  or  thanks, looks good!' });
+    inp.addEventListener('input', () => { ed.text = inp.value; renderPreview(); });
+    v.append(h('div', { class: 'sec-label' }, 'Text to type'), inp, h('p', { class: 'note' }, 'Typed into whatever box has focus. It does not press Enter, so you can check it first.'));
   } else if (ed.kind === 'run') {
     const inp = h('input', { class: 'text', value: ed.run, placeholder: 'notepad.exe  or  C:\\path\\app.exe  or  https://…' });
     inp.addEventListener('input', () => { ed.run = inp.value; renderPreview(); });
@@ -1068,7 +1118,8 @@ function renderEditor() {
   } else {
     const notes = { switcher: 'First press opens Alt+Tab. Each press within the wait time moves one window. Stop pressing to switch.',
       dpi: 'Each press moves to the next speed preset (Cursor & scroll → Speed presets). The controller buzzes 1–3 times.',
-      toggle: 'Switches between Mouse & keys and Game. 2 buzzes = Mouse & keys, 3 = Game.' };
+      toggle: 'Switches between Mouse & keys and Game. 2 buzzes = Mouse & keys, 3 = Game.',
+      menu: 'Opens the quick menu next to the cursor. D-pad moves, X picks, B closes. Edit its items under Shortcuts → Quick menu.' };
     v.append(h('p', { class: 'note', style: 'margin:0' }, notes[ed.kind]));
   }
   renderPreview();
@@ -1126,7 +1177,8 @@ window.addEventListener('pywebviewready', async () => {
   api = window.pywebview.api;
   [info, cfg, previews] = await Promise.all([api.info(), api.config(), api.cursor_previews()]);
   $('#ver').textContent = 'Foxi ' + info.version;
-  buildPad(); renderLists(); renderCursor(); renderSystem(); buildDiag(); show('controller');
+  buildPad(); renderLists(); renderQuickMenu(); renderCursor(); renderSystem(); buildDiag(); show('controller');
+  $('#qm-add').addEventListener('click', () => { cfg.quick_menu.push({ label: 'New item', action: 'text:hello' }); renderQuickMenu(); saveSoon(); });
   $$('.nav').forEach(b => b.addEventListener('click', () => show(b.dataset.view)));
   $$('#mode button').forEach(b => b.addEventListener('click', () => { if (S && S.mode !== b.dataset.mode) api.toggle(); }));
   $('#add').addEventListener('click', () => openEditor(null));

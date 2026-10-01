@@ -1,6 +1,6 @@
 """Foxi — use your controller as mouse + keyboard. Window host: pywebview (Edge WebView2) shows ui/index.html,
 which talks to the engine through Api. Build with build.bat."""
-import base64, copy, ctypes, glob, os, subprocess, sys, threading
+import base64, copy, ctypes, ctypes.wintypes, glob, os, subprocess, sys, threading
 import webview
 import diag
 import engine as E
@@ -138,10 +138,81 @@ class Api:
     def open_folder(self):
         os.startfile(BASE)
 
+    def menu_state(self):
+        e = self._eng
+        return {'open': e.menu_open, 'index': e.menu_index, 'items': e.cfg['quick_menu'] if e.cfg else []}
+
+    def menu_pick(self, i):
+        self._eng.menu_pick(int(i))
+
+    def menu_close(self):
+        self._eng.close_menu()
+
+
+MENU_TITLE, MENU_W, MENU_ROW, MENU_CHROME = 'Foxi menu', 400, 46, 84  # logical px: width, row, header+footer
+
+
+_u = ctypes.windll.user32  # declare 64-bit handle args, or HWND_TOPMOST (-1) gets truncated and the call fails
+_u.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                            ctypes.c_uint]
+_u.MonitorFromPoint.restype = ctypes.c_void_p
+_u.GetMonitorInfoW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [('cbSize', ctypes.c_uint), ('rcMonitor', ctypes.wintypes.RECT), ('rcWork', ctypes.wintypes.RECT),
+                ('dwFlags', ctypes.c_uint)]
+
+
+OFFSCREEN = -32000  # "closed" menu parks here: still visible to WinForms, so WebView2 keeps rendering it
+
+
+def own_window(title, pid=None):
+    """This process's top-level window with exactly `title`. Never FindWindow: it matches titles
+    case-insensitively across ALL apps, so 'Foxi' also hits a terminal tab named 'foxi'."""
+    u, pid, found = ctypes.windll.user32, pid or os.getpid(), []
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+    def visit(h, _):
+        owner = ctypes.wintypes.DWORD()
+        u.GetWindowThreadProcessId(ctypes.c_void_p(h), ctypes.byref(owner))
+        if owner.value == pid:
+            buf = ctypes.create_unicode_buffer(256)
+            u.GetWindowTextW(ctypes.c_void_p(h), buf, 256)
+            if buf.value == title:
+                found.append(h)
+                return False
+        return True
+    u.EnumWindows(visit, 0)
+    return found[0] if found else None
+
+
+def show_menu(opened, rows):
+    """Move the quick menu next to the cursor (kept inside that monitor) WITHOUT activating it, so the app
+    you were typing in keeps keyboard focus and receives whatever the menu types. pywebview's show() would
+    activate it, and a Win32-shown hidden form never paints, so the window is moved instead of shown/hidden."""
+    u = ctypes.windll.user32
+    hwnd = own_window(MENU_TITLE)
+    if not hwnd:
+        return
+    if not opened:
+        u.SetWindowPos(hwnd, None, OFFSCREEN, OFFSCREEN, 0, 0, 0x0001 | 0x0004 | 0x0010)  # NOSIZE|NOZORDER|NOACTIVATE
+        return
+    k = (u.GetDpiForWindow(hwnd) or 96) / 96
+    w, h = int(MENU_W * k), int((MENU_CHROME + MENU_ROW * max(rows, 1)) * k)
+    pt = ctypes.wintypes.POINT()
+    u.GetCursorPos(ctypes.byref(pt))
+    mi = MONITORINFO(cbSize=ctypes.sizeof(MONITORINFO))
+    u.GetMonitorInfoW(u.MonitorFromPoint(pt, 2), ctypes.byref(mi))  # MONITOR_DEFAULTTONEAREST
+    wa = mi.rcWork
+    x = min(max(pt.x + 18, wa.left), wa.right - w)
+    y = min(max(pt.y + 18, wa.top), wa.bottom - h)
+    u.SetWindowPos(hwnd, ctypes.c_void_p(-1), x, y, w, h, 0x0010)  # HWND_TOPMOST, SWP_NOACTIVATE
+
 
 def dark_titlebar(title):
     """Windows 11: dark caption + caption colour matching the page background."""
-    hwnd = ctypes.windll.user32.FindWindowW(None, title)
+    hwnd = own_window(title)
     if hwnd:
         dwm = ctypes.windll.dwmapi
         dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), 4)            # immersive dark mode
@@ -157,14 +228,28 @@ def main():
     eng = E.Engine(CFG)
     thread = threading.Thread(target=eng.run, daemon=True)
     thread.start()
-    win = webview.create_window('Foxi', url=os.path.join(RES, 'ui', 'index.html'), js_api=Api(eng),
+    api = Api(eng)
+    win = webview.create_window('Foxi', url=os.path.join(RES, 'ui', 'index.html'), js_api=api,
                                 width=1180, height=780, min_size=(980, 660), background_color='#191714')
+    menu = webview.create_window(MENU_TITLE, url=os.path.join(RES, 'ui', 'menu.html'), js_api=api,
+                                 width=MENU_W, height=360, x=OFFSCREEN, y=OFFSCREEN, frameless=True, easy_drag=False,
+                                 on_top=True, focus=False, resizable=False, background_color='#1f1b18')
+    eng.on_menu = lambda opened: show_menu(opened, len(eng.cfg['quick_menu']))
+
+    def round_menu():  # rounded corners; tool window + no-activate: never in taskbar/Alt+Tab, never takes focus
+        u = ctypes.windll.user32
+        hwnd = own_window(MENU_TITLE)
+        if hwnd:
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(ctypes.c_int(2)), 4)
+            u.SetWindowLongW(hwnd, -20, u.GetWindowLongW(hwnd, -20) | 0x80 | 0x08000000)
+            show_menu(False, 0)
 
     def closed():
         eng.running = False
         thread.join(timeout=2)  # engine releases keys/mouse, un-hides the pad, restores cursors
+        menu.destroy()          # otherwise the hidden menu window keeps the app alive
     win.events.closed += closed
-    win.events.shown += lambda: dark_titlebar('Foxi')
+    win.events.shown += lambda: (dark_titlebar('Foxi'), round_menu())
     try:
         webview.start(debug='--debug' in sys.argv, icon=os.path.join(RES, 'assets', 'foxi.ico'))
     except Exception:
