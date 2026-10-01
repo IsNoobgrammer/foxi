@@ -165,6 +165,7 @@ class MONITORINFO(ctypes.Structure):
 
 
 OFFSCREEN = -32000  # "closed" menu parks here: still visible to WinForms, so WebView2 keeps rendering it
+MENU_HWND = [0]     # found once by title at startup, then the title is cleared (nothing lists 'Foxi menu')
 
 
 def own_window(title, pid=None):
@@ -192,7 +193,7 @@ def show_menu(opened, rows):
     you were typing in keeps keyboard focus and receives whatever the menu types. pywebview's show() would
     activate it, and a Win32-shown hidden form never paints, so the window is moved instead of shown/hidden."""
     u = ctypes.windll.user32
-    hwnd = own_window(MENU_TITLE)
+    hwnd = MENU_HWND[0]
     if not hwnd:
         return
     if not opened:
@@ -236,20 +237,29 @@ def main():
                                  on_top=True, focus=False, resizable=False, background_color='#1f1b18')
     eng.on_menu = lambda opened: show_menu(opened, len(eng.cfg['quick_menu']))
 
-    def round_menu():  # rounded corners; tool window + no-activate: never in taskbar/Alt+Tab, never takes focus
+    def prepare_menu():
+        """Rounded corners; keep it out of the taskbar, Alt+Tab and Task View; never takes focus.
+        WinForms marks forms WS_EX_APPWINDOW, which beats WS_EX_TOOLWINDOW, so drop it, then hide/show
+        once so the shell re-reads the styles (shown again at once: WebView2 keeps rendering)."""
         u = ctypes.windll.user32
         hwnd = own_window(MENU_TITLE)
-        if hwnd:
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(ctypes.c_int(2)), 4)
-            u.SetWindowLongW(hwnd, -20, u.GetWindowLongW(hwnd, -20) | 0x80 | 0x08000000)
-            show_menu(False, 0)
+        if not hwnd:
+            return
+        MENU_HWND[0] = hwnd
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(ctypes.c_int(2)), 4)
+        ex = u.GetWindowLongW(hwnd, -20)
+        u.SetWindowLongW(hwnd, -20, (ex | 0x80 | 0x08000000) & ~0x40000)  # +TOOLWINDOW +NOACTIVATE -APPWINDOW
+        u.ShowWindow(hwnd, 0)  # SW_HIDE
+        u.ShowWindow(hwnd, 4)  # SW_SHOWNOACTIVATE
+        u.SetWindowTextW(hwnd, '')
+        show_menu(False, 0)
 
     def closed():
         eng.running = False
         thread.join(timeout=2)  # engine releases keys/mouse, un-hides the pad, restores cursors
         menu.destroy()          # otherwise the hidden menu window keeps the app alive
     win.events.closed += closed
-    win.events.shown += lambda: (dark_titlebar('Foxi'), round_menu())
+    win.events.shown += lambda: (dark_titlebar('Foxi'), prepare_menu())
     try:
         webview.start(debug='--debug' in sys.argv, icon=os.path.join(RES, 'assets', 'foxi.ico'))
     except Exception:

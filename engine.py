@@ -41,13 +41,15 @@ DEFAULT_CONFIG = {
         'LS+RS': 'toggle', 'BACK': 'dpi', 'START': 'menu', 'A': 'keys:win+shift+s',
     },
     # START opens this list near the cursor: D-pad moves, X picks, B closes. keys: presses, text: types.
+    # text: items only type, never press Enter: you check the text, then press Enter (X) yourself
     'quick_menu': [
-        {'label': 'Select all', 'action': 'keys:ctrl+a'},
+        {'label': 'Copy', 'action': 'keys:ctrl+c'},
         {'label': 'Paste', 'action': 'keys:ctrl+v'},
+        {'label': 'Select all', 'action': 'keys:ctrl+a'},
         {'label': 'Paste image', 'action': 'keys:alt+v'},
-        {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
         {'label': 'Resume a session', 'action': 'text:/resume'},
         {'label': 'Compact the context', 'action': 'text:/compact'},
+        {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
     ],
 }
 
@@ -440,9 +442,10 @@ class Engine:
 
         if self.menu_open and self.mode != 'on':
             self.close_menu()
-        if self.menu_open:
+        menu_tick = self.menu_open  # the press that picks/closes is used up by the menu: X must not also Enter
+        if menu_tick:
             self.menu_step(held)
-        for bit in BUTTONS.values() if not self.menu_open else ():
+        for bit in BUTTONS.values() if not menu_tick else ():
             if not held & bit & ~self.prev:
                 continue
             combo = pick(bit, held, self.map)
@@ -542,7 +545,37 @@ class Engine:
             set_cursor_pack('windows')
 
 
+def test_menu_press_is_consumed():
+    """Menu, release, X: only the menu item runs. X's own mapping (Enter) must not fire on the same press."""
+    import tempfile
+    g = globals()
+    saved = {k: g[k] for k in ('start', 'tap', 'key', 'cloak', 'set_cursor_pack', 'hidhide_sync')}
+    fired = []
+    g.update(start=fired.append, tap=lambda s: fired.append('tap:' + s), key=lambda *a: None,
+             cloak=lambda on: None, set_cursor_pack=lambda p: None, hidhide_sync=lambda: None)
+    try:
+        eng = Engine(os.path.join(tempfile.mkdtemp(), 'foxi.json'))
+        eng.reload()
+        eng.buzz = lambda n: None
+        state = {'b': 0}
+
+        def fake_get(_, ref):
+            ref._obj.pad.wButtons = state['b']
+            return 0
+        eng.get_state = fake_get
+        for b, expect_open in ((BUTTONS['START'], True), (0, True), (BUTTONS['X'], False), (0, False)):
+            state['b'] = b
+            eng.step(time.perf_counter(), 0.001)
+            assert eng.menu_open == expect_open, (b, eng.menu_open)
+        assert fired == ['keys:ctrl+c'], fired  # Copy only: no 'keys:enter'
+        state['b'] = BUTTONS['X']; eng.step(time.perf_counter(), 0.001)  # menu closed: X is Enter again
+        assert fired[-1] == 'keys:enter', fired
+    finally:
+        g.update(saved)
+
+
 def test():
+    test_menu_press_is_consumed()
     mp = {parse_combo(k): k for k in ['UP', 'X', 'UP+X', 'LT', 'LB+RB']}
     U, X, LT, LB, RB = (BUTTONS[k] for k in ['UP', 'X', 'LT', 'LB', 'RB'])
     assert mp[pick(U, U, mp)] == 'UP'
