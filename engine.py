@@ -49,6 +49,7 @@ DEFAULT_CONFIG = {
         {'label': 'Paste image', 'action': 'keys:alt+v'},
         {'label': 'Resume a session', 'action': 'text:/resume'},
         {'label': 'Compact the context', 'action': 'text:/compact'},
+        {'label': 'Goal', 'action': 'text:/goal'},
         {'label': 'Claude, skip permissions', 'action': 'text:claude --dangerously-skip-permissions'},
     ],
 }
