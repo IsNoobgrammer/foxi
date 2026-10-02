@@ -9,7 +9,7 @@ FROZEN = getattr(sys, 'frozen', False)
 BASE = E.APP_DIR  # portable: Foxi.exe + data/ next to it
 RES = getattr(sys, '_MEIPASS', BASE)  # bundled files (ui, HidHide installer, cursors), unpacked by the exe
 CFG = os.path.join(E.DATA_DIR, 'foxi.json')
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 
 def migrate():

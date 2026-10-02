@@ -27,8 +27,8 @@ Point, click, scroll, dictate, delete words and switch windows from the couch, t
 | A | Space | B | Escape (back) |
 | X | Enter | Y | Tab |
 | LB | Voice typing (Win+H) | RB | Backspace · hold = delete whole words |
-| View | Cycle cursor speed | Menu | Quick menu (Copy, Paste, Select all, Paste image, /resume, /compact, /goal, …) |
-| L3 + B | Screenshot (Win+Shift+S) | L3 + Y | Window switcher (keep L3 held, tap Y to step) |
+| View | Cycle cursor speed | Menu | Quick menu: most-used tiles (Screenshot, Paste image, Select all, Paste) + categories (Claude Code, Windows, Edit) |
+| L3 + B | Copy (Ctrl+C) | L3 + Y | Window switcher (keep L3 held, tap Y to step) |
 | L3 + R3 | Mouse & keys ⇄ Game | | |
 
 L3 / R3 are the stick clicks; on pads with back buttons (like the EvoFox One S) you can set those to send L3 / R3 and hold them with your middle fingers.
