@@ -162,6 +162,39 @@ def save_config(path, raw):
     os.replace(tmp, path)  # atomic: engine never reads a half-written file
 
 
+MENU_COLS = 4  # most-used items sit in a row of tiles at the top of the quick menu
+
+
+def top_order(items):
+    """Top level as shown: most-used actions first (tile grid), then categories (vertical list)."""
+    return [i for i in items if 'items' not in i] + [i for i in items if 'items' in i]
+
+
+def menu_nav(i, btn, tiles, n):
+    """Quick-menu cursor movement. Items 0..tiles-1 form a MENU_COLS-wide grid, the rest a vertical list
+    (inside a category tiles = 0: plain list). Returns the new index."""
+    if n <= 0:
+        return 0
+    c = MENU_COLS
+    if i < tiles:  # in the tile grid
+        if btn == 'LEFT':
+            return i - 1 if i % c else i
+        if btn == 'RIGHT':
+            return i + 1 if i % c < c - 1 and i + 1 < tiles else i
+        if btn == 'UP':
+            return i - c if i >= c else n - 1                      # top row wraps to the last item
+        if btn == 'DOWN':
+            return i + c if i + c < tiles else (tiles if tiles < n else i)
+        return i
+    if btn == 'UP':
+        if i - 1 >= tiles:
+            return i - 1
+        return (tiles - 1) // c * c if tiles else n - 1            # first list item -> last tile row
+    if btn == 'DOWN':
+        return i + 1 if i + 1 < n else 0
+    return i
+
+
 def pick(bit, held, mapping):
     """Just-pressed button `bit`: longest mapped combo that includes it and is fully held.
     So LT held (dragging) + UP still fires UP, and UP then X fires UP, then UP+X if mapped."""
@@ -421,14 +454,18 @@ class Engine:
         self.on_menu(True)
 
     def menu_items(self):
-        """The list shown right now: top level, or the opened category's items."""
-        items = self.cfg['quick_menu']
+        """The list shown right now: top level (tiles, then categories), or the opened category's items."""
+        items = top_order(self.cfg['quick_menu'])
         for i in self.menu_path:
             items = items[i]['items'] if 0 <= i < len(items) and 'items' in items[i] else []
         return items
 
+    def menu_tiles(self):
+        """How many items are tiles right now (top level only)."""
+        return 0 if self.menu_path else sum(1 for i in self.cfg['quick_menu'] if 'items' not in i)
+
     def menu_crumbs(self):
-        items, names = self.cfg['quick_menu'], []
+        items, names = top_order(self.cfg['quick_menu']), []
         for i in self.menu_path:
             names.append(items[i]['label']); items = items[i]['items']
         return names
@@ -461,14 +498,16 @@ class Engine:
 
     def menu_step(self, held):
         """While the menu is open the D-pad/X/B drive it instead of their mappings; sticks keep working."""
-        new, n = held & ~self.prev, max(len(self.menu_items()), 1)
-        if new & BUTTONS['UP']:
-            self.menu_index = (self.menu_index - 1) % n
-        if new & BUTTONS['DOWN']:
-            self.menu_index = (self.menu_index + 1) % n
-        if new & (BUTTONS['X'] | BUTTONS['A'] | BUTTONS['RIGHT']):
-            self.menu_pick(self.menu_index)   # opens a category or runs the item
-        elif new & (BUTTONS['B'] | BUTTONS['LEFT']):
+        new, items = held & ~self.prev, self.menu_items()
+        tiles, n = self.menu_tiles(), len(items)
+        in_list = self.menu_index >= tiles
+        for b in ('UP', 'DOWN', 'LEFT', 'RIGHT'):
+            if new & BUTTONS[b] and not (b in ('LEFT', 'RIGHT') and in_list):
+                self.menu_index = menu_nav(self.menu_index, b, tiles, n)
+        cur = items[self.menu_index] if 0 <= self.menu_index < n else None
+        if new & (BUTTONS['X'] | BUTTONS['A']) or (new & BUTTONS['RIGHT'] and in_list and cur and 'items' in cur):
+            self.menu_pick(self.menu_index)   # runs the item, or opens a category (X, A, or -> on a category)
+        elif new & BUTTONS['B'] or (new & BUTTONS['LEFT'] and in_list and self.menu_path):
             self.menu_back()                  # up one level, or close at the top
         elif new & self.menu_combo:
             self.close_menu()
@@ -647,8 +686,9 @@ def test_menu_press_is_consumed():
             state['b'] = b; eng.step(time.perf_counter(), 0.001)
             state['b'] = 0; eng.step(time.perf_counter(), 0.001)
         press(BUTTONS['START'])
-        for _ in range(4):
-            press(BUTTONS['DOWN'])                       # past the 4 most-used items, onto 'Claude Code'
+        press(BUTTONS['RIGHT']); assert eng.menu_index == 1   # tiles: right moves along the row
+        press(BUTTONS['DOWN'])                           # tile row -> first category ('Claude Code')
+        assert eng.menu_index == 4, eng.menu_index
         press(BUTTONS['X'])
         assert eng.menu_open and eng.menu_crumbs() == ['Claude Code'] and eng.menu_index == 0
         press(BUTTONS['B'])                              # back to the top, cursor on the category
@@ -731,6 +771,12 @@ def test():
         except ValueError: pass
     c = DEFAULT_CONFIG
     validate(c)  # default quick menu items are valid
+    # tiles 0-3, list 4-6: grid moves, list moves, wraps
+    assert [menu_nav(0, b, 4, 7) for b in ('LEFT', 'RIGHT', 'DOWN', 'UP')] == [0, 1, 4, 6]
+    assert [menu_nav(3, b, 4, 7) for b in ('RIGHT', 'LEFT')] == [3, 2]
+    assert [menu_nav(4, b, 4, 7) for b in ('UP', 'DOWN')] == [0, 5] and menu_nav(6, 'DOWN', 4, 7) == 0
+    assert [menu_nav(0, b, 0, 4) for b in ('UP', 'DOWN')] == [3, 1]  # inside a category: plain list
+    assert menu_nav(5, 'DOWN', 6, 6) == 5 and menu_nav(1, 'DOWN', 6, 6) == 5   # 6 tiles, no categories
     try: validate({**c, 'quick_menu': [{'label': 'a', 'items': [{'label': 'b', 'items': []}]}]}); assert False
     except ValueError: pass  # no categories inside categories
     for bad in ({**c, 'quick_menu': [{'label': '', 'action': 'text:x'}]},

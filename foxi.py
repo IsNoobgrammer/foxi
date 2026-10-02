@@ -142,7 +142,8 @@ class Api:
         e = self._eng
         if not e.cfg:
             return {'open': False, 'index': 0, 'items': [], 'crumbs': []}
-        return {'open': e.menu_open, 'index': e.menu_index, 'items': e.menu_items(), 'crumbs': e.menu_crumbs()}
+        return {'open': e.menu_open, 'index': e.menu_index, 'items': e.menu_items(), 'crumbs': e.menu_crumbs(),
+                'tiles': e.menu_tiles(), 'cols': E.MENU_COLS}
 
     def menu_pick(self, i):
         self._eng.menu_pick(int(i))
@@ -151,7 +152,7 @@ class Api:
         self._eng.close_menu()
 
 
-MENU_TITLE, MENU_W, MENU_ROW, MENU_CHROME = 'Foxi menu', 400, 46, 84  # logical px: width, row, header+footer
+MENU_TITLE, MENU_W, MENU_ROW, MENU_CHROME = 'Foxi menu', 460, 46, 92  # logical px: width, row, header+footer
 
 
 _u = ctypes.windll.user32  # declare 64-bit handle args, or HWND_TOPMOST (-1) gets truncated and the call fails
@@ -191,10 +192,11 @@ def own_window(title, pid=None):
 
 
 def menu_rows(eng):
-    """Height of the current level in rows; the most-used / categories divider counts as half a row."""
-    items = eng.menu_items()
-    split = not eng.menu_path and any('items' in i for i in items) and any('items' not in i for i in items)
-    return len(items) + (0.6 if split else 0)
+    """Height of the current level in list rows: a tile row is ~1.6 rows, the 'Categories' divider ~0.6."""
+    items, tiles = eng.menu_items(), eng.menu_tiles()
+    cats = len(items) - tiles
+    tile_rows = -(-tiles // E.MENU_COLS)
+    return tile_rows * 1.6 + cats + (0.6 if tiles and cats else 0)
 
 
 def show_menu(opened, rows):

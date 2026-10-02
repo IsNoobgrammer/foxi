@@ -239,6 +239,13 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
 .qrow.child { padding-left: 34px; }
 .qrow.child .act b { font-weight: 500; }
 .qrow.empty-cat { cursor: default; }
+.qm-prev li.ptiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; height: auto; padding: 2px 4px 6px; }
+.qm-prev .ptile { display: flex; flex-direction: column; justify-content: center; gap: 3px; height: 58px; padding: 6px 9px; min-width: 0;
+  border-radius: 9px; background: var(--s2); border: 1px solid var(--line); }
+.qm-prev .ptile b { font-weight: 600; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qm-prev .ptile span { font: 11px var(--mono); color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qm-prev .ptile.on { background: var(--acc); border-color: transparent; }
+.qm-prev .ptile.on b, .qm-prev .ptile.on span { color: var(--on-acc); }
 .qm-prev li.pdiv { height: 26px; padding: 0 10px 4px; align-items: flex-end; color: var(--tx3); font: 600 10.5px var(--font);
   letter-spacing: .1em; text-transform: uppercase; }
 .qrow .n { color: var(--tx3); font-variant-numeric: tabular-nums; text-align: right; }
@@ -539,7 +546,7 @@ select, .text { height: 36px; border-radius: var(--r-sm); border: 1px solid var(
 </div>
 
 <div class="scrim" id="scrim"></div>
-<aside class="drawer" id="drawer" aria-hidden="true">
+<aside class="drawer" id="drawer" aria-hidden="true" inert>
   <header><h2 id="ed-title">Edit shortcut</h2><p class="dim" id="ed-sub" style="margin:4px 0 0"></p></header>
   <div class="body">
     <div id="ed-label-sec" hidden>
@@ -929,13 +936,15 @@ function renderMenuPreview() {
   const parent = qmHot.parent != null && isCat(cfg.quick_menu[qmHot.parent]) ? qmHot.parent : null;
   const items = listAt(parent), hot = parent == null ? qmHot.index : (qmHot.parent === parent ? qmHot.index : 0);
   const lis = [];
-  let div = false;
-  items.forEach((it, i) => {
-    if (parent == null && isCat(it) && !div && i > 0) lis.push(h('li', { class: 'pdiv' }, 'Categories'));
-    if (isCat(it)) div = true;
-    lis.push(h('li', { class: i === hot ? 'on' : '' }, h('span', { class: 'n' }, i + 1), h('b', {}, it.label),
-      isCat(it) ? h('span', { class: 'hint' }, `${it.items.length} ›`) : h('span', { class: 'hint' }, menuHint(it.action))));
-  });
+  if (parent == null) {  // as the popup shows it: most-used actions as tiles, then categories
+    const acts = items.map((it, i) => [it, i]).filter(([it]) => !isCat(it)), cats = items.map((it, i) => [it, i]).filter(([it]) => isCat(it));
+    if (acts.length) lis.push(h('li', { class: 'ptiles' }, acts.map(([it, i]) =>
+      h('div', { class: 'ptile' + (i === hot ? ' on' : '') }, h('b', {}, it.label), h('span', {}, menuHint(it.action))))));
+    if (acts.length && cats.length) lis.push(h('li', { class: 'pdiv' }, 'Categories'));
+    for (const [it, i] of cats) lis.push(h('li', { class: i === hot ? 'on' : '' }, h('span', { class: 'n', style: 'color:var(--acc)' }, '▸'),
+      h('b', {}, it.label), h('span', { class: 'hint' }, `${it.items.length} ›`)));
+  } else items.forEach((it, i) => lis.push(h('li', { class: i === hot ? 'on' : '' }, h('span', { class: 'n' }, i + 1),
+    h('b', {}, it.label), h('span', { class: 'hint' }, menuHint(it.action)))));
   $('#qm-prev').replaceChildren(
     h('div', { class: 'ph' }, h('span', { style: 'color:var(--acc)' }, '◆'),
       parent == null ? 'Quick menu' : h('span', {}, h('span', { class: 'dim' }, 'Quick menu › '), cfg.quick_menu[parent].label), h('small', {}, 'Foxi')),
@@ -963,6 +972,7 @@ function edSections(menuMode, catMode) {
 function openDrawer(focus) {
   $('#ed-err').textContent = '';
   $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+  $('#drawer').inert = false;
   setTimeout(() => $(focus).focus(), 50);
 }
 function openMenuItem(parent = null, i = null) {
@@ -1325,17 +1335,20 @@ function openEditor(combo, fromPad = false) {
   $('#ed-err').textContent = '';
   renderEditor();
   $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').setAttribute('aria-hidden', 'false');
+  $('#drawer').inert = false;
   setTimeout(() => $('#ed-rec').focus(), 50);
 }
 function closeEditor() {
   stopRecord(true);
+  if ($('#drawer').contains(document.activeElement)) document.activeElement.blur();
   $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); $('#drawer').setAttribute('aria-hidden', 'true');
+  $('#drawer').inert = true;
   ed = null;
 }
 function renderEditor() {
   $('#ed-chips').replaceChildren(...(ed.combo ? chipsFor(ed.combo) : [h('span', { class: 'dim' }, 'No buttons yet')]));
   $('#ed-types').replaceChildren(...TYPES.filter(([k]) => !ed.menu || MENU_TYPES.includes(k)).map(([k, t, d]) => h('button', { class: 'type' + (ed.kind === k ? ' on' : ''),
-    onclick: () => { ed.kind = k; renderEditor(); } }, h('b', {}, t), h('span', {}, d))));
+    onclick: () => { if (!ed) return; ed.kind = k; renderEditor(); } }, h('b', {}, t), h('span', {}, d))));
   const v = $('#ed-value'); v.replaceChildren();
   if (ed.kind === 'win') {
     v.append(h('div', { class: 'sec-label' }, 'Feature'), h('div', { class: 'features' }, WIN_FEATURES.map(([a, n]) =>
@@ -1463,10 +1476,10 @@ window.addEventListener('pywebviewready', async () => {
     toast('Reset to defaults', { action: 'Undo', onAction: async () => { cfg = before; await saveNow(); refreshAll(); renderCursor(); renderSystem(); }, ms: 6000 });
   });
   $('#open-folder').addEventListener('click', () => api.open_folder());
-  $('#ed-rec').addEventListener('click', startRecord);
-  $('#ed-save').addEventListener('click', saveEditor);
+  $('#ed-rec').addEventListener('click', () => ed && startRecord());
+  $('#ed-save').addEventListener('click', () => ed && saveEditor());
   $('#ed-cancel').addEventListener('click', closeEditor);
-  $('#ed-del').addEventListener('click', deleteEditor);
+  $('#ed-del').addEventListener('click', () => ed && deleteEditor());
   $('#scrim').addEventListener('click', closeEditor);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && ed) closeEditor(); });
   window.addEventListener('resize', drawCurve);

@@ -35,6 +35,19 @@ li:hover:not(.on) { background: var(--s2); }
 footer { padding: 8px 14px 12px; color: var(--tx3); font-size: 12px; border-top: 1px solid var(--line); }
 header .crumb { color: var(--tx3); font-weight: 600; }
 header .crumb b { color: var(--tx); }
+.tiles { display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 6px; padding: 2px 10px 6px; }
+.tile { display: flex; flex-direction: column; justify-content: center; gap: 4px; height: 66px; padding: 8px 10px;
+  border-radius: 10px; background: var(--s2); border: 1px solid var(--line); min-width: 0; transition: background .08s; }
+.tile b { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile .hint { max-width: 100%; }
+.tile.on { background: var(--acc); border-color: transparent; }
+.tile.on b, .tile.on .hint { color: var(--on-acc); }
+.tile.on .k { background: oklch(100% 0 0 / .25); border-color: transparent; color: var(--on-acc); }
+.tile:hover:not(.on) { background: var(--s3); }
+.tile .k { margin: 0 2px 0 0; padding: 0 4px; font-size: 10.5px; }
+.tile .hint { overflow: hidden; white-space: nowrap; font-size: 11px; }
+li.tiles { height: auto; border-radius: 0; }
+li.tiles:hover { background: none !important; }
 li.div { height: 28px; padding: 0 10px; color: var(--tx3); font: 600 10.5px var(--font); letter-spacing: .1em; text-transform: uppercase;
   align-items: flex-end; padding-bottom: 6px; }
 li.div:hover { background: none !important; }
@@ -68,7 +81,7 @@ function hint(action) {
   return span;
 }
 function render(st) {
-  const key = JSON.stringify([st.items, st.index, st.crumbs]);
+  const key = JSON.stringify([st.items, st.index, st.crumbs, st.tiles]);
   if (key === last) return;
   last = key;
   const title = document.getElementById('title');
@@ -76,17 +89,30 @@ function render(st) {
     ? [Object.assign(document.createElement('span'), { className: 'crumb', textContent: 'Quick menu › ' }),
        Object.assign(document.createElement('b'), { textContent: st.crumbs.join(' › ') })]
     : [document.createTextNode('Quick menu')]));
-  const top = !st.crumbs.length, rows = [];
-  let shownDivider = false;
+  const top = !st.crumbs.length, rows = [], tiles = st.tiles || 0;
+  if (tiles) {  // most-used actions: a row of tiles
+    const grid = document.createElement('li'); grid.className = 'tiles'; grid.style.setProperty('--cols', st.cols || 4);
+    st.items.slice(0, tiles).forEach((it, i) => {
+      const t = document.createElement('div'); t.className = 'tile' + (i === st.index ? ' on' : '');
+      const b = document.createElement('b'); b.textContent = it.label;
+      const hs = document.createElement('span'); hs.className = 'hint';  // plain text: chips don't fit 3 keys in a tile
+      const [kind, ...rest] = it.action.split(':'); const arg = rest.join(':');
+      hs.textContent = kind === 'keys' ? arg.split('+').map(keyNice).join('+') : kind === 'text' ? arg : 'opens ' + arg.split(/[\/]/).pop();
+      t.append(b, hs);
+      t.addEventListener('click', () => window.pywebview.api.menu_pick(i));
+      grid.append(t);
+    });
+    rows.push(grid);
+  }
   st.items.forEach((it, i) => {
+    if (i < tiles) return;
     const cat = 'items' in it;
-    if (top && cat && !shownDivider && i > 0) {
+    if (top && tiles && i === tiles) {
       const d = document.createElement('li'); d.className = 'div'; d.textContent = 'Categories'; rows.push(d);
     }
-    if (cat) shownDivider = true;
     const li = document.createElement('li');
     li.className = i === st.index ? 'on' : '';
-    const n = document.createElement('span'); n.className = 'n'; n.textContent = i + 1;
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = cat ? '▸' : i - tiles + 1;
     const b = document.createElement('b'); b.textContent = it.label;
     li.append(n, b);
     if (cat) {
